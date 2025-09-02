@@ -1,62 +1,90 @@
-# gary-asst
 # Gary Assistant
 
-Early MVP of the Gary Assistant project.
+Gary is a Python-based project designed to support business development executives by streamlining workflows and automating tasks.  
+The project enforces consistent coding standards through linting, formatting, type checking, and automated tests — all wired into **pre-commit hooks**.
 
 ---
 
-## 🚀 Getting Started
+## Prerequisites
 
-### 1. Clone the repo
-```bash
-git clone <your-repo-url>
-cd gary-asst/dev
+- **Python** 3.11.9 (managed via [pyenv](https://github.com/pyenv/pyenv))
+- **pip** (comes with Python / venv)
+- **pre-commit** (installed via requirements.txt)
 
-2. Set Python version (via pyenv)
+> **Optional (only if we add a frontend later):**
+> - **Node.js** (via [nvm](https://github.com/nvm-sh/nvm) or [asdf](https://asdf-vm.com/))
+>   - Recommended: Node 20.x LTS
+>   - Install frontend dependencies with `npm install` or `yarn install` once a `package.json` is present
 
-pyenv local 3.11.9
+---
 
-3. Create a virtual environment
+## Setup Instructions
 
-python -m venv .venv
-source .venv/bin/activate
+1. **Install Python 3.11.9 via pyenv:**
+   ```bash
+   pyenv install 3.11.9
+   pyenv local 3.11.9
+   ```
 
-4. Install dependencies
+2. **Create and activate a virtual environment:**
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate
+   ```
 
-pip install --upgrade pip
-pip install -r requirements.txt
+3. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-5. Install pre-commit hooks
+4. **Install pre-commit hooks:**
+   ```bash
+   pre-commit install
+   ```
 
-pre-commit install
-pre-commit run --all-files
+5. **Run hooks manually on all files (first run may take a few minutes):**
+   ```bash
+   pre-commit run --all-files
+   ```
 
-    Hooks will run automatically on every git commit.
+---
 
-🧪 Running Tests
+## Development Workflow
 
-pytest -q
+- Code formatting is enforced by **black**.
+- Linting is handled by **ruff**.
+- Type checking is handled by **mypy**.
+- Tests are run with **pytest**.
 
-📝 Project Structure
+### Useful Commands
 
-gary-asst/
-└── dev/
-    ├── src/              # App source code
-    │   └── app.py
-    ├── tests/            # Unit tests
-    │   └── test_smoke.py
-    ├── requirements.txt  # Python dependencies
-    └── .pre-commit-config.yaml
+- Run tests:
+  ```bash
+  pytest
+  ```
 
-✅ Development Workflow
+- Run type checking:
+  ```bash
+  mypy .
+  ```
 
-    Make changes in src/ or tests/.
+- Run linting:
+  ```bash
+  ruff check .
+  ```
 
-    Run pytest to check tests.
+- Auto-format code:
+  ```bash
+  black .
+  ```
 
-    Stage & commit your changes with Git — formatting, linting, and type checks will run automatically.
+---
 
+## Notes
 
-👉 This way, anyone (Nick, you, or future collaborators) can go from zero → running in <5 minutes.  
-
-Do you want me to also add a **section about contribution rules** (e.g., commit message style, branching) so the workflow is standardized from day one?
+- Commit hooks will automatically run before every commit to ensure code quality.
+- If a hook fails, fix the issue and re-commit.
+- You can skip hooks (not recommended) with:
+  ```bash
+  git commit --no-verify
+  ```
