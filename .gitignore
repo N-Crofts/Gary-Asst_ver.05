@@ -11,5 +11,6 @@ __pycache__/
 .DS_Store
 
 # VS Code / IDEs
-.vscode/
+.vscode/*
+!.vscode/settings.json
 .idea/
