@@ -1,12 +1,12 @@
 # Gary-Asst (Research Gary MVP)
 
-Research Gary scans the daily calendar, builds quick dossiers for external meetings, and emails a single morning briefing. This README reflects **your current repo state** (single `app/main.py` and a smoke test) and shows how to **upgrade to the FastAPI skeleton** we planned.
+Research Gary scans the daily calendar, builds quick dossiers for external meetings, and emails a single morning briefing. This README reflects **the repo state at its start** (single `app/main.py` and a smoke test) and shows how to **upgrade to the FastAPI skeleton** we planned.
 
 References: Product Spec and Tech Plan.
 
 ---
 
-## ✅ What’s in this repo *right now*
+## ✅ What’s in this repo at project start
 
 - `app/main.py` — FastAPI entrypoint with a basic scheduler and healthcheck route.
 - `tests/test_smoke.py` — smoke test (`assert 1 + 1 == 2`).
@@ -27,19 +27,32 @@ git clone <your-repo-url>
 cd gary-asst
 
 # 2. Create & activate virtual environment (if not already active)
+
+# macOS / Linux
 python3 -m venv .venv
-source .venv/bin/activate   # or .venv\Scripts\activate on Windows
+source .venv/bin/activate
+
+# Windows PowerShell
+py -3.11 -m venv .venv
+.venv\Scripts\Activate.ps1
 
 # 3. Install dependencies
-pip install -r requirements-all.txt
+pip install -r requirements-all.txt   # or requirements.txt if that's the file present
 
 # 4. Copy environment variables template
+
+# macOS / Linux
 cp .env.example .env
+
+# Windows PowerShell
+Copy-Item .env.example .env
+
 # then open .env and fill in your keys
 
 # 5. Run the server and tests
 uvicorn app.main:app --reload
-pytest -q
+python -m pytest -q
+```
 
 ## 🎯 MVP goal (short)
 
@@ -66,9 +79,19 @@ To confirm the project is wired up correctly:
 
 3. **Test the digest endpoint**
    In another terminal (with venv activated):
+
+   **macOS / Linux**
    ```bash
    curl -X POST http://127.0.0.1:8000/digest/send
    ```
+
+   **Windows PowerShell**
+   ```powershell
+   Invoke-WebRequest -Uri "http://127.0.0.1:8000/digest/send" -Method POST
+   # or, if curl.exe is installed:
+   curl.exe -X POST http://127.0.0.1:8000/digest/send
+   ```
+
    → Should return JSON with `"ok": true` and an `"html"` field containing the sample digest (Acme Capital, Jane Doe, etc.).
 
 If all three succeed, the skeleton app is running end-to-end.
@@ -81,7 +104,7 @@ We added `tests/test_endpoints.py` to automatically check both endpoints.
 
 Run:
 ```bash
-pytest -q
+python -m pytest -q
 ```
 
 Expected:
@@ -145,6 +168,7 @@ pre-commit install
 ```
 gary-asst/
   app/
+    __init__.py
     main.py
     routes/
       digest.py
@@ -190,5 +214,5 @@ uvicorn app.main:app --reload
 pip install pre-commit && pre-commit install
 
 # Tests
-pytest -q
+python -m pytest -q
 ```
