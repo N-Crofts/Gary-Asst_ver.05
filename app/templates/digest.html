@@ -3,14 +3,11 @@
   <head>
     <meta charset="utf-8" />
     <title>Morning Briefing</title>
-    <!-- Keep styles inline for maximum email-client compatibility -->
   </head>
   <body style="margin:0; padding:0; background:#f5f5f5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; color:#353530; line-height:1.5;">
-    <!-- Outer wrapper (email-safe table layout) -->
     <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;">
       <tr>
         <td align="center" style="padding:24px 12px;">
-          <!-- Inner container -->
           <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="600" style="max-width:600px; width:100%; background:#ffffff; border-radius:12px; overflow:hidden; border:1px solid #e5e7eb;">
             <!-- Header -->
             <tr>
@@ -31,7 +28,7 @@
               </td>
             </tr>
 
-            <!-- Intro / quick legend -->
+            <!-- Legend -->
             <tr>
               <td style="padding:16px 24px 0 24px;">
                 <div style="font-size:13px; color:#555; margin-bottom:8px;">
@@ -41,7 +38,6 @@
               </td>
             </tr>
 
-            <!-- Meetings Loop (or a sample card if none provided) -->
             {% if meetings and meetings|length > 0 %}
               {% for m in meetings %}
                 <!-- Meeting card -->
@@ -57,7 +53,7 @@
                             {% if m.location %} &nbsp;•&nbsp; {{ m.location }}{% endif %}
                           </div>
 
-                          <!-- Attendees (pill list) -->
+                          <!-- Attendees -->
                           {% if m.attendees and m.attendees|length > 0 %}
                             <div style="margin:8px 0 6px 0; font-size:12px; color:#374151;">
                               <span style="font-weight:700;">Attendees:</span>
@@ -71,7 +67,7 @@
                             </div>
                           {% endif %}
 
-                          <!-- Company summary -->
+                          <!-- Company -->
                           {% if m.company %}
                             <div style="margin:10px 0; padding:8px 10px; background:#fff1f2; border:1px solid #ffe4e6; border-radius:8px; font-size:12px;">
                               <div style="font-weight:700; color:#9f1239; margin-bottom:2px;">Company</div>
@@ -82,13 +78,20 @@
                             </div>
                           {% endif %}
 
-                          <!-- News -->
+                          <!-- Recent news (clickable links) -->
                           {% if m.news and m.news|length > 0 %}
                             <div style="margin:12px 0 4px 0;">
                               <div style="font-weight:800; font-size:13px; color:#0f172a; margin-bottom:6px;">Recent news</div>
                               <ul style="margin:0; padding-left:18px; font-size:13px;">
                                 {% for n in m.news %}
-                                  <li style="margin:6px 0;">{{ n }}</li>
+                                  {% if n.title and n.url %}
+                                    <li style="margin:6px 0;">
+                                      <a href="{{ n.url }}" style="color:#3a5d80; text-decoration:underline;">{{ n.title }}</a>
+                                    </li>
+                                  {% else %}
+                                    <!-- Back-compat if plain string -->
+                                    <li style="margin:6px 0;">{{ n }}</li>
+                                  {% endif %}
                                 {% endfor %}
                               </ul>
                             </div>
@@ -124,7 +127,7 @@
                 </tr>
               {% endfor %}
             {% else %}
-              <!-- Fallback sample (hardcoded) so it "works with at least one hardcoded meeting for testing" -->
+              <!-- Fallback sample if no meetings provided -->
               <tr>
                 <td style="padding:12px 24px 16px 24px;">
                   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse; background:#ffffff; border:1px solid #e5e7eb; border-radius:10px;">
@@ -142,17 +145,17 @@
                             <span style="display:inline-block; font-size:12px; margin:4px 6px 0 0; padding:5px 8px; border-radius:999px; background:#f3f4f6; border:1px solid #e5e7eb;">A. Rivera, Partner (Acme Capital)</span>
                           </div>
                         </div>
-                        <div style="margin:10px 0; padding:8px 10px; background:#fff1f2; border:1px solid #ffe4e6; border-radius:8px; font-size:12px;">
-                          <div style="font-weight:700; color:#9f1239; margin-bottom:2px;">Company</div>
-                          <div style="color:#111827;"><strong>Acme Capital</strong> — Growth-stage investor in climate tech & fintech.</div>
-                        </div>
+
+                        <!-- Enrichment in fallback -->
                         <div style="margin:12px 0 4px 0;">
                           <div style="font-weight:800; font-size:13px; color:#0f172a; margin-bottom:6px;">Recent news</div>
                           <ul style="margin:0; padding-left:18px; font-size:13px;">
-                            <li style="margin:6px 0;">Closed $250M Fund IV; focusing on decarbonization infrastructure.</li>
-                            <li style="margin:6px 0;">Led Series B in GridFlow (portfolio overlap with RPCK client).</li>
+                            <li style="margin:6px 0;"><a href="https://example.com/acme-fund-iv" style="color:#3a5d80; text-decoration:underline;">Acme closes $250M Fund IV focused on decarbonization</a></li>
+                            <li style="margin:6px 0;"><a href="https://example.com/gridflow-series-b" style="color:#3a5d80; text-decoration:underline;">Acme leads GridFlow Series B; overlap with RPCK client</a></li>
+                            <li style="margin:6px 0;"><a href="https://example.com/infra-partnership" style="color:#3a5d80; text-decoration:underline;">Partnership announced in climate infra</a></li>
                           </ul>
                         </div>
+
                         <div style="margin:12px 0 4px 0;">
                           <div style="font-weight:800; font-size:13px; color:#0f172a; margin-bottom:6px;">Talking points (prioritize)</div>
                           <ol style="margin:0; padding-left:18px; font-size:13px;">
@@ -161,11 +164,13 @@
                             <li style="margin:6px 0;">Flag cross-border structuring considerations early.</li>
                           </ol>
                         </div>
+
                         <div style="margin:12px 0 0 0; padding:10px 12px; background:#eaf2e9; border:1px solid #dbe7da; border-radius:8px;">
                           <div style="font-weight:800; font-size:13px; color:#064e3b; margin-bottom:6px;">Smart questions</div>
                           <ul style="margin:0; padding-left:18px; font-size:13px;">
                             <li style="margin:6px 0;">What milestones unlock the next capital call, and where might legal support accelerate them?</li>
                             <li style="margin:6px 0;">Any portfolio companies evaluating EU/US entity changes in 2025 that we should prep guidance for?</li>
+                            <li style="margin:6px 0;">Where do you anticipate the biggest regulatory friction in the next 2 quarters?</li>
                           </ul>
                         </div>
                       </td>
@@ -184,8 +189,6 @@
               </td>
             </tr>
           </table>
-
-          <!-- Tiny spacer under card -->
           <div style="height:12px; line-height:12px; font-size:12px;">&nbsp;</div>
         </td>
       </tr>
