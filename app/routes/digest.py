@@ -1,83 +1,107 @@
-# app/routes/digest.py
-from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
+from fastapi import APIRouter, Request, HTTPException
+from fastapi.responses import JSONResponse
 from datetime import datetime
 from zoneinfo import ZoneInfo
+import os
+
+from app.schemas.digest import DigestSendRequest, DigestSendResponse
+from app.services.emailer import select_emailer_from_env
+from app.rendering.digest_renderer import render_digest_html
+from app.data.sample_digest import SAMPLE_MEETINGS
+
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/templates")
 
-def _today_et_str():
-    now = datetime.now(ZoneInfo("America/New_York"))
-    day = str(int(now.strftime("%d")))  # avoid %-d on Windows
+
+def _today_et_str(tz_name: str) -> str:
+    tz = ZoneInfo(tz_name)
+    now = datetime.now(tz)
+    day = str(int(now.strftime("%d")))
     return f"{now.strftime('%a')}, {now.strftime('%b')} {day}, {now.strftime('%Y')}"
 
-def _sample_meetings_with_enrichment():
-    return [
-        {
-            "subject": "RPCK × Acme Capital — Portfolio Strategy Check-in",
-            "start_time": "9:30 AM ET",
-            "location": "Zoom",
-            "attendees": [
-                {"name": "Chintan Panchal", "title": "Managing Partner", "company": "RPCK"},
-                {"name": "Carolyn", "title": "Chief of Staff", "company": "RPCK"},
-                {"name": "A. Rivera", "title": "Partner", "company": "Acme Capital"},
-            ],
-            "company": {"name": "Acme Capital", "one_liner": "Growth-stage investor in climate tech & fintech."},
-            "news": [
-                {"title": "Acme closes $250M Fund IV focused on decarbonization", "url": "https://example.com/acme-fund-iv"},
-                {"title": "GridFlow raises Series B led by Acme; overlap with RPCK client", "url": "https://example.com/gridflow-series-b"},
-                {"title": "Acme announces climate infrastructure partnership", "url": "https://example.com/infra-partnership"},
-            ],
-            "talking_points": [
-                "Confirm Q4 fund-formation timeline & counsel needs.",
-                "Explore co-marketing with GridFlow case study.",
-                "Flag cross-border structuring considerations early.",
-            ],
-            "smart_questions": [
-                "What milestones unlock the next capital call, and where might legal support accelerate them?",
-                "Any portfolio companies evaluating EU/US entity changes in 2025 that we should prep guidance for?",
-                "Where do you anticipate the biggest regulatory friction in the next 2 quarters?",
-            ],
-        },
-        {
-            "subject": "RPCK × GreenSpark Energy — Counsel Scope Review",
-            "start_time": "1:00 PM ET",
-            "location": "Teams",
-            "attendees": [
-                {"name": "Chintan Panchal", "title": "Managing Partner", "company": "RPCK"},
-                {"name": "N. Crofts", "title": "Dev/AI", "company": "RPCK"},
-                {"name": "M. Chen", "title": "CFO", "company": "GreenSpark"},
-            ],
-            "company": {"name": "GreenSpark Energy", "one_liner": "Community-scale solar developer."},
-            "news": [
-                {"title": "GreenSpark wins 30MW community solar RFP in NY", "url": "https://example.com/gs-rfp-win"},
-                {"title": "Tax credit transfer program expands eligibility", "url": "https://example.com/itc-transfer-update"},
-                {"title": "NYSERDA revises interconnection timelines", "url": "https://example.com/nyserda-interconnect"},
-            ],
-            "talking_points": [
-                "Align on scope for tax credit transfer documentation.",
-                "Timeline risks around interconnection; mitigation options.",
-                "Data room checklist before diligence starts.",
-            ],
-            "smart_questions": [
-                "Which projects are most impacted by interconnection delays and why?",
-                "How will expanded transferability change your financing mix?",
-                "Any counterparties that require special regulatory handling?",
-            ],
-        },
-    ]
 
-@router.get("/send", response_class=HTMLResponse)
-@router.post("/send", response_class=HTMLResponse)
-async def send_digest(request: Request):
-    meetings = _sample_meetings_with_enrichment()  # replace with real data source later
+def _get_timezone() -> str:
+    return os.getenv("TIMEZONE", "America/New_York")
+
+
+def _default_subject() -> str:
+    return f"RPCK – Morning Briefing: {_today_et_str(_get_timezone())}"
+
+
+def _get_default_recipients() -> list[str]:
+    raw = os.getenv("DEFAULT_RECIPIENTS", "")
+    recipients = [r.strip() for r in raw.split(",") if r.strip()]
+    return recipients
+
+
+def _allow_override() -> bool:
+    return os.getenv("ALLOW_RECIPIENT_OVERRIDE", "false").lower() == "true"
+
+
+def _get_sender() -> str:
+    return os.getenv("DEFAULT_SENDER", "gary@rpck.com")
+
+
+def _assemble_live_meetings() -> list:
+    # Placeholder for future live assembly; return empty to trigger fallback
+    return []
+
+
+@router.get("/send")
+async def get_send_digest(request: Request, send: bool = False, recipients: list[str] | None = None, subject: str | None = None, source: str | None = "sample"):
+    body = DigestSendRequest(send=send, recipients=recipients, subject=subject, source=source)  # type: ignore[arg-type]
+    return await _handle_send(request, body)
+
+
+@router.post("/send")
+async def post_send_digest(request: Request, body: DigestSendRequest):
+    return await _handle_send(request, body)
+
+
+async def _handle_send(request: Request, body: DigestSendRequest):
+    if body.source not in ("sample", "live"):
+        raise HTTPException(status_code=400, detail="source must be 'sample' or 'live'")
+
+    if body.recipients is not None and not _allow_override():
+        raise HTTPException(status_code=400, detail="Recipient override not allowed")
+
+    data_source = body.source or "sample"
+    meetings = SAMPLE_MEETINGS if data_source == "sample" else (_assemble_live_meetings() or SAMPLE_MEETINGS)
+
     context = {
         "request": request,
         "meetings": meetings,
         "exec_name": "Biz Dev",
-        "date_human": _today_et_str(),
+        "date_human": _today_et_str(_get_timezone()),
         "current_year": datetime.now().strftime("%Y"),
     }
-    return templates.TemplateResponse("digest.html", context)
+    html = render_digest_html(context)
+
+    recipients_final = _get_default_recipients()
+    if body.recipients is not None and _allow_override():
+        recipients_final = [str(r) for r in body.recipients]
+
+    if not recipients_final:
+        recipients_final = []
+
+    subject_final = body.subject or _default_subject()
+
+    action = "rendered"
+    message_id: str | None = None
+    driver_used = os.getenv("MAIL_DRIVER", "console").lower()
+    if body.send:
+        emailer = select_emailer_from_env()
+        message_id = emailer.send(subject=subject_final, html=html, recipients=recipients_final, sender=_get_sender())
+        action = "sent"
+
+    response = DigestSendResponse(
+        ok=True,
+        action=action,
+        subject=subject_final,
+        recipients=recipients_final,
+        message_id=message_id,
+        preview_chars=len(html),
+        driver=driver_used,  # type: ignore[arg-type]
+        source=data_source,  # type: ignore[arg-type]
+    )
+    return JSONResponse(status_code=200, content=response.dict())

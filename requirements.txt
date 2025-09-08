@@ -8,3 +8,4 @@ apscheduler
 openai
 msal
 structlog
+email-validator
