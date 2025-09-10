@@ -8,6 +8,7 @@ from app.schemas.digest import DigestSendRequest, DigestSendResponse
 from app.services.emailer import select_emailer_from_env
 from app.rendering.digest_renderer import render_digest_html
 from app.data.sample_digest import SAMPLE_MEETINGS
+from app.core.config import load_config
 
 
 router = APIRouter()
@@ -49,12 +50,14 @@ def _assemble_live_meetings() -> list:
 
 @router.get("/send")
 async def get_send_digest(request: Request, send: bool = False, recipients: list[str] | None = None, subject: str | None = None, source: str | None = "sample"):
+    _require_api_key_if_configured(request)
     body = DigestSendRequest(send=send, recipients=recipients, subject=subject, source=source)  # type: ignore[arg-type]
     return await _handle_send(request, body)
 
 
 @router.post("/send")
 async def post_send_digest(request: Request, body: DigestSendRequest):
+    _require_api_key_if_configured(request)
     return await _handle_send(request, body)
 
 
@@ -105,3 +108,36 @@ async def _handle_send(request: Request, body: DigestSendRequest):
         source=data_source,  # type: ignore[arg-type]
     )
     return JSONResponse(status_code=200, content=response.dict())
+
+
+def _require_api_key_if_configured(request: Request) -> None:
+    cfg = load_config()
+    if not cfg.api_key:
+        return
+    provided = request.headers.get("x-api-key") or request.headers.get("X-API-Key")
+    if provided != cfg.api_key:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+
+@router.get("/preview")
+async def preview_digest_html(request: Request, source: str | None = "sample"):
+    _require_api_key_if_configured(request)
+    data_source = source or "sample"
+    meetings = SAMPLE_MEETINGS if data_source == "sample" else (_assemble_live_meetings() or SAMPLE_MEETINGS)
+    context = {
+        "request": request,
+        "meetings": meetings,
+        "exec_name": "Biz Dev",
+        "date_human": _today_et_str(_get_timezone()),
+        "current_year": datetime.now().strftime("%Y"),
+    }
+    html = render_digest_html(context)
+    return JSONResponse({"ok": True, "html": html, "source": data_source})
+
+
+@router.get("/preview.json")
+async def preview_digest_json(request: Request, source: str | None = "sample"):
+    _require_api_key_if_configured(request)
+    data_source = source or "sample"
+    meetings = SAMPLE_MEETINGS if data_source == "sample" else (_assemble_live_meetings() or SAMPLE_MEETINGS)
+    return JSONResponse({"ok": True, "meetings": meetings, "source": data_source})
