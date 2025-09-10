@@ -3,6 +3,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime
 
 from app.routes.digest import router as digest_router
+from app.routes.preview import router as preview_router
 
 app = FastAPI(title="Gary-Asst (MVP Skeleton)")
 
@@ -29,6 +30,7 @@ def _shutdown():
 
 # Routes
 app.include_router(digest_router, prefix="/digest", tags=["digest"])
+app.include_router(preview_router, prefix="/digest", tags=["preview"])
 
 
 @app.get("/")

@@ -119,25 +119,3 @@ def _require_api_key_if_configured(request: Request) -> None:
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
-@router.get("/preview")
-async def preview_digest_html(request: Request, source: str | None = "sample"):
-    _require_api_key_if_configured(request)
-    data_source = source or "sample"
-    meetings = SAMPLE_MEETINGS if data_source == "sample" else (_assemble_live_meetings() or SAMPLE_MEETINGS)
-    context = {
-        "request": request,
-        "meetings": meetings,
-        "exec_name": "Biz Dev",
-        "date_human": _today_et_str(_get_timezone()),
-        "current_year": datetime.now().strftime("%Y"),
-    }
-    html = render_digest_html(context)
-    return JSONResponse({"ok": True, "html": html, "source": data_source})
-
-
-@router.get("/preview.json")
-async def preview_digest_json(request: Request, source: str | None = "sample"):
-    _require_api_key_if_configured(request)
-    data_source = source or "sample"
-    meetings = SAMPLE_MEETINGS if data_source == "sample" else (_assemble_live_meetings() or SAMPLE_MEETINGS)
-    return JSONResponse({"ok": True, "meetings": meetings, "source": data_source})

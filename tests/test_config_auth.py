@@ -14,6 +14,7 @@ def test_api_key_guard_blocks_when_configured(monkeypatch):
 
     r2 = client.get("/digest/preview", headers={"x-api-key": "secret123"})
     assert r2.status_code == 200
-    assert r2.json()["ok"] is True
+    # The preview endpoint now returns HTML by default, so check content type
+    assert r2.headers["content-type"].startswith("text/html")
 
 
