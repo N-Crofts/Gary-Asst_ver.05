@@ -22,7 +22,9 @@ def _require_api_key_if_configured(request: Request) -> None:
 
 
 def _convert_meeting_to_model(meeting: dict) -> MeetingModel:
-    """Convert a meeting dict to a MeetingModel."""
+    """Convert a meeting (dict or pydantic model) to a MeetingModel."""
+    if hasattr(meeting, "model_dump"):
+        meeting = meeting.model_dump()  # type: ignore[assignment]
     # Convert attendees
     attendees = []
     for attendee in meeting.get("attendees", []):

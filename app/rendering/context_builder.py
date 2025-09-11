@@ -4,6 +4,7 @@ from typing import Dict, Any, Literal, Optional
 from app.calendar.mock_provider import MockCalendarProvider
 from app.data.sample_digest import SAMPLE_MEETINGS
 from app.rendering.digest_renderer import _today_et_str, _get_timezone
+from app.enrichment.service import enrich_meetings
 
 
 def _map_events_to_meetings(events: list[dict] | list) -> list[dict]:
@@ -59,8 +60,11 @@ def build_digest_context_with_provider(
     else:
         meetings = SAMPLE_MEETINGS
 
+    # Optionally enrich meetings
+    meetings_enriched = enrich_meetings(meetings)
+
     context = {
-        "meetings": meetings,
+        "meetings": meetings_enriched,
         "date_human": _today_et_str(_get_timezone()),
         "current_year": datetime.now().strftime("%Y"),
         "exec_name": exec_name or "RPCK Biz Dev",
