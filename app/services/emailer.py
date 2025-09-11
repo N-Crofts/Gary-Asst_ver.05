@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from typing import List, Optional
 
 from fastapi import HTTPException
@@ -20,7 +21,8 @@ class ConsoleEmailer(Emailer):
         # Simulate a send. Avoid printing secrets or full HTML in logs.
         preview_len = min(len(html), 200)
         print(f"[console-email] from={sender} to={','.join(recipients)} subject={subject} html_preview={html[:preview_len]!r}...")
-        return None
+        # Return synthetic message id for local debugging
+        return f"MSG-LOCAL-{int(time.time()*1000)}"
 
 
 class SmtpEmailer(Emailer):
@@ -45,19 +47,34 @@ class SmtpEmailer(Emailer):
         message["From"] = sender
         message["To"] = ", ".join(recipients)
 
+        backoffs = [0.2, 0.4, 0.8]
+        last_exc: Exception | None = None
+        for attempt, delay in enumerate(backoffs, start=1):
+            try:
+                server = smtplib.SMTP(self.host, self.port)
+                if self.use_tls:
+                    server.starttls()
+                if self.username:
+                    server.login(self.username, self.password)
+                server.sendmail(sender, recipients, message.as_string())
+                server.quit()
+                return None
+            except Exception as exc:
+                last_exc = exc
+                time.sleep(delay)
+        # Final attempt without sleeping after
         try:
+            server = smtplib.SMTP(self.host, self.port)
             if self.use_tls:
-                server = smtplib.SMTP(self.host, self.port)
                 server.starttls()
-            else:
-                server = smtplib.SMTP(self.host, self.port)
             if self.username:
                 server.login(self.username, self.password)
             server.sendmail(sender, recipients, message.as_string())
             server.quit()
+            return None
         except Exception as exc:
-            raise HTTPException(status_code=503, detail=f"SMTP send failed: {exc}")
-        return None
+            last_exc = exc
+        raise HTTPException(status_code=503, detail=f"SMTP send failed after retries: {last_exc}")
 
 
 class SendgridEmailer(Emailer):
@@ -77,16 +94,28 @@ class SendgridEmailer(Emailer):
             "subject": subject,
             "content": [{"type": "text/html", "value": html}],
         }
+        backoffs = [0.2, 0.4, 0.8]
+        last_error: str | None = None
+        for delay in backoffs:
+            try:
+                with httpx.Client(timeout=15) as client:
+                    resp = client.post(url, headers=headers, json=data)
+                if resp.status_code in (200, 202):
+                    return resp.headers.get("X-Message-Id") or None
+                last_error = f"{resp.status_code} {resp.text}"
+            except Exception as exc:
+                last_error = str(exc)
+            time.sleep(delay)
+        # Final attempt
         try:
             with httpx.Client(timeout=15) as client:
                 resp = client.post(url, headers=headers, json=data)
-            if resp.status_code not in (200, 202):
-                raise HTTPException(status_code=503, detail=f"SendGrid send failed: {resp.status_code} {resp.text}")
-            return resp.headers.get("X-Message-Id") or None
-        except HTTPException:
-            raise
+            if resp.status_code in (200, 202):
+                return resp.headers.get("X-Message-Id") or None
+            last_error = f"{resp.status_code} {resp.text}"
         except Exception as exc:
-            raise HTTPException(status_code=503, detail=f"SendGrid send failed: {exc}")
+            last_error = str(exc)
+        raise HTTPException(status_code=503, detail=f"SendGrid send failed after retries: {last_error}")
 
 
 def select_emailer_from_env() -> Emailer:
