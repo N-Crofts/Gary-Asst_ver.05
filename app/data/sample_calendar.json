@@ -1,0 +1,36 @@
+{
+  "events": [
+    {
+      "subject": "RPCK × Acme Capital — Portfolio Strategy Check-in",
+      "start_time": "2025-09-08T09:30:00-04:00",
+      "end_time": "2025-09-08T10:30:00-04:00",
+      "location": "Zoom",
+      "attendees": [
+        {"name": "Chintan Panchal", "title": "Managing Partner", "company": "RPCK", "email": "chintan@rpck.com"},
+        {"name": "Carolyn", "title": "Chief of Staff", "company": "RPCK", "email": "carolyn@rpck.com"},
+        {"name": "A. Rivera", "title": "Partner", "company": "Acme Capital", "email": "arivera@acme.vc"}
+      ],
+      "notes": "Quarterly portfolio strategy sync"
+    },
+    {
+      "subject": "Internal: BizDev Standup",
+      "start_time": "2025-09-08T11:00:00-04:00",
+      "end_time": "2025-09-08T11:30:00-04:00",
+      "location": "Huddle Room",
+      "attendees": [
+        {"name": "Biz Dev Team"}
+      ]
+    },
+    {
+      "subject": "Client Intro — GridFlow B",
+      "start_time": "2025-09-09T14:00:00-04:00",
+      "end_time": "2025-09-09T14:45:00-04:00",
+      "location": "Teams",
+      "attendees": [
+        {"name": "GridFlow Ops"}
+      ]
+    }
+  ]
+}
+
+
