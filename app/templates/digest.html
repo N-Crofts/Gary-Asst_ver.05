@@ -120,6 +120,23 @@
                               </ul>
                             </div>
                           {% endif %}
+
+                          <!-- Recent with them (Memory) -->
+                          {% if m.memory and m.memory.previous_meetings and m.memory.previous_meetings|length > 0 %}
+                            <div style="margin:12px 0 0 0; padding:10px 12px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px;">
+                              <div style="font-weight:800; font-size:13px; color:#475569; margin-bottom:6px;">Recent with them</div>
+                              <ul style="margin:0; padding-left:18px; font-size:13px;">
+                                {% for past in m.memory.previous_meetings %}
+                                  <li style="margin:6px 0; color:#64748b;">
+                                    <strong style="color:#475569;">{{ past.date }}</strong> — {{ past.subject }}
+                                    {% if past.key_attendees and past.key_attendees|length > 0 %}
+                                      <br><span style="font-size:12px; color:#94a3b8;">with {{ past.key_attendees|join(", ") }}</span>
+                                    {% endif %}
+                                  </li>
+                                {% endfor %}
+                              </ul>
+                            </div>
+                          {% endif %}
                         </td>
                       </tr>
                     </table>

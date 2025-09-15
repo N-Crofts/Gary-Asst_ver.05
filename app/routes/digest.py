@@ -7,8 +7,11 @@ import os
 from app.schemas.digest import DigestSendRequest, DigestSendResponse
 from app.services.emailer import select_emailer_from_env
 from app.rendering.digest_renderer import render_digest_html
+from app.rendering.plaintext import render_plaintext
 from app.data.sample_digest import SAMPLE_MEETINGS
 from app.core.config import load_config
+from app.observability.logger import log_event, timing
+from app.routes.health import update_last_run
 
 
 router = APIRouter()
@@ -48,6 +51,19 @@ def _assemble_live_meetings() -> list:
     return []
 
 
+def _build_digest_context() -> dict:
+    """Build digest context for scheduled sending."""
+    meetings = SAMPLE_MEETINGS  # For now, use sample data
+
+    return {
+        "request": None,
+        "meetings": meetings,
+        "exec_name": "Biz Dev",
+        "date_human": _today_et_str(_get_timezone()),
+        "current_year": datetime.now().strftime("%Y"),
+    }
+
+
 @router.get("/send")
 async def get_send_digest(request: Request, send: bool = False, recipients: list[str] | None = None, subject: str | None = None, source: str | None = "sample"):
     _require_api_key_if_configured(request)
@@ -79,6 +95,7 @@ async def _handle_send(request: Request, body: DigestSendRequest):
         "current_year": datetime.now().strftime("%Y"),
     }
     html = render_digest_html(context)
+    plaintext = render_plaintext(context)
 
     recipients_final = _get_default_recipients()
     if body.recipients is not None and _allow_override():
@@ -92,10 +109,36 @@ async def _handle_send(request: Request, body: DigestSendRequest):
     action = "rendered"
     message_id: str | None = None
     driver_used = os.getenv("MAIL_DRIVER", "console").lower()
-    if body.send:
-        emailer = select_emailer_from_env()
-        message_id = emailer.send(subject=subject_final, html=html, recipients=recipients_final, sender=_get_sender())
-        action = "sent"
+
+    # Time the email sending operation
+    with timing("digest_send") as timer:
+        if body.send:
+            emailer = select_emailer_from_env()
+            message_id = emailer.send(subject=subject_final, html=html, recipients=recipients_final, sender=_get_sender(), plaintext=plaintext)
+            action = "sent"
+
+    # Log the event with structured data
+    log_event(
+        action=action,
+        driver=driver_used,
+        source=data_source,
+        subject=subject_final,
+        recipients_count=len(recipients_final),
+        message_id=message_id,
+        duration_ms=timer.get_duration_ms(),
+    )
+
+    # Update last run information for health endpoint
+    update_last_run(
+        action=action,
+        driver=driver_used,
+        source=data_source,
+        subject=subject_final,
+        recipients_count=len(recipients_final),
+        message_id=message_id,
+        duration_ms=timer.get_duration_ms(),
+        success=True,
+    )
 
     response = DigestSendResponse(
         ok=True,

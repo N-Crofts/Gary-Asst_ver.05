@@ -22,5 +22,6 @@ class MeetingWithEnrichment(BaseModel):
     news: List[NewsItem] = []
     talking_points: List[str] = []
     smart_questions: List[str] = []
+    memory: Optional[dict] = None
 
 

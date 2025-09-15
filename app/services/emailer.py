@@ -7,20 +7,38 @@ from typing import List, Optional
 from fastapi import HTTPException
 
 
+def _include_plaintext() -> bool:
+    """Check if plaintext should be included in emails."""
+    return os.getenv("INCLUDE_PLAINTEXT", "true").lower() == "true"
+
+
+def _preview_subject_suffix() -> str:
+    """Get the preview subject suffix for console driver."""
+    return os.getenv("PREVIEW_SUBJECT_SUFFIX", " [Preview]")
+
+
 class Emailer:
     driver: str
 
-    def send(self, subject: str, html: str, recipients: List[str], sender: str) -> Optional[str]:
+    def send(self, subject: str, html: str, recipients: List[str], sender: str, plaintext: Optional[str] = None) -> Optional[str]:
         raise NotImplementedError
 
 
 class ConsoleEmailer(Emailer):
     driver = "console"
 
-    def send(self, subject: str, html: str, recipients: List[str], sender: str) -> Optional[str]:
+    def send(self, subject: str, html: str, recipients: List[str], sender: str, plaintext: Optional[str] = None) -> Optional[str]:
+        # Add preview suffix to subject for console driver
+        subject_with_suffix = subject + _preview_subject_suffix()
+
         # Simulate a send. Avoid printing secrets or full HTML in logs.
         preview_len = min(len(html), 200)
-        print(f"[console-email] from={sender} to={','.join(recipients)} subject={subject} html_preview={html[:preview_len]!r}...")
+        print(f"[console-email] from={sender} to={','.join(recipients)} subject={subject_with_suffix} html_preview={html[:preview_len]!r}...")
+
+        if plaintext and _include_plaintext():
+            plaintext_preview_len = min(len(plaintext), 200)
+            print(f"[console-email] plaintext_preview={plaintext[:plaintext_preview_len]!r}...")
+
         # Return synthetic message id for local debugging
         return f"MSG-LOCAL-{int(time.time()*1000)}"
 
@@ -35,17 +53,34 @@ class SmtpEmailer(Emailer):
         self.password = password
         self.use_tls = use_tls
 
-    def send(self, subject: str, html: str, recipients: List[str], sender: str) -> Optional[str]:
+    def send(self, subject: str, html: str, recipients: List[str], sender: str, plaintext: Optional[str] = None) -> Optional[str]:
         try:
             import smtplib
             from email.mime.text import MIMEText
+            from email.mime.multipart import MIMEMultipart
         except Exception as exc:
             raise HTTPException(status_code=503, detail=f"SMTP not available: {exc}")
 
-        message = MIMEText(html, "html")
-        message["Subject"] = subject
-        message["From"] = sender
-        message["To"] = ", ".join(recipients)
+        # Create message
+        if plaintext and _include_plaintext():
+            # Multipart/alternative message
+            message = MIMEMultipart("alternative")
+            message["Subject"] = subject
+            message["From"] = sender
+            message["To"] = ", ".join(recipients)
+
+            # Add plaintext and HTML parts
+            text_part = MIMEText(plaintext, "plain", "utf-8")
+            html_part = MIMEText(html, "html", "utf-8")
+
+            message.attach(text_part)
+            message.attach(html_part)
+        else:
+            # Single HTML message
+            message = MIMEText(html, "html", "utf-8")
+            message["Subject"] = subject
+            message["From"] = sender
+            message["To"] = ", ".join(recipients)
 
         backoffs = [0.2, 0.4, 0.8]
         last_exc: Exception | None = None
@@ -83,16 +118,22 @@ class SendgridEmailer(Emailer):
     def __init__(self, api_key: str):
         self.api_key = api_key
 
-    def send(self, subject: str, html: str, recipients: List[str], sender: str) -> Optional[str]:
+    def send(self, subject: str, html: str, recipients: List[str], sender: str, plaintext: Optional[str] = None) -> Optional[str]:
         import httpx
 
         url = "https://api.sendgrid.com/v3/mail/send"
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+
+        # Build content array
+        content = [{"type": "text/html", "value": html}]
+        if plaintext and _include_plaintext():
+            content.insert(0, {"type": "text/plain", "value": plaintext})
+
         data = {
             "personalizations": [{"to": [{"email": r} for r in recipients]}],
             "from": {"email": sender},
             "subject": subject,
-            "content": [{"type": "text/html", "value": html}],
+            "content": content,
         }
         backoffs = [0.2, 0.4, 0.8]
         last_error: str | None = None

@@ -6,6 +6,7 @@ from app.data.sample_digest import SAMPLE_MEETINGS
 from app.rendering.digest_renderer import _today_et_str, _get_timezone
 from app.enrichment.service import enrich_meetings
 from app.profile.store import get_profile
+from app.memory.service import attach_memory_to_meetings
 
 
 def _apply_company_aliases(meetings: list[dict], aliases: Dict[str, List[str]]) -> list[dict]:
@@ -129,8 +130,11 @@ def build_digest_context_with_provider(
     # Apply profile max_items limits
     meetings_trimmed = _trim_meeting_sections(meetings_enriched, profile.max_items)
 
+    # Attach memory data (past meetings) to each meeting
+    meetings_with_memory = attach_memory_to_meetings(meetings_trimmed)
+
     context = {
-        "meetings": meetings_trimmed,
+        "meetings": meetings_with_memory,
         "date_human": _today_et_str(_get_timezone()),
         "current_year": datetime.now().strftime("%Y"),
         "exec_name": exec_name or profile.exec_name,  # Use profile default unless overridden
