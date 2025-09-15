@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import List, Dict, Any
 
 from app.enrichment.models import MeetingWithEnrichment, Company, NewsItem
+from app.llm.service import select_llm_client
 
 
 DATA_PATH = Path("app/data/sample_enrichment.json")
@@ -46,6 +47,9 @@ def enrich_meetings(meetings: List[Dict[str, Any]], now: float | None = None, ti
         # Return input minimally wrapped for type compatibility
         return [MeetingWithEnrichment(**m) for m in meetings]
 
+    # Get LLM client (will be StubLLMClient if LLM is disabled)
+    llm_client = select_llm_client()
+
     fixtures = _load_fixtures()
     start_time = now if now is not None else time.perf_counter()
     per_meeting_budget = timeout_s if timeout_s is not None else (_timeout_ms() / 1000.0)
@@ -55,10 +59,17 @@ def enrich_meetings(meetings: List[Dict[str, Any]], now: float | None = None, ti
         key = _key_for_meeting(m)
         fixture = fixtures.get(key, {})
         news = [NewsItem(**n) for n in fixture.get("news", [])]
-        talking_points = fixture.get("talking_points", [])
-        smart_questions = fixture.get("smart_questions", [])
         company = fixture.get("company")
         company_model = Company(**company) if isinstance(company, dict) else None
+
+        # Generate talking points and smart questions using LLM client
+        try:
+            talking_points = llm_client.generate_talking_points(m)
+            smart_questions = llm_client.generate_smart_questions(m)
+        except Exception:
+            # Fall back to fixture data if LLM fails
+            talking_points = fixture.get("talking_points", [])
+            smart_questions = fixture.get("smart_questions", [])
 
         enriched.append(
             MeetingWithEnrichment(

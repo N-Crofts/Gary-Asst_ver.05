@@ -1,6 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 import os
 
 from app.main import app
@@ -151,17 +151,19 @@ class TestDigestPreview:
 
     def test_preview_default_parameters(self):
         """Test that default parameters work correctly."""
-        # Test HTML with defaults
-        response = client.get("/digest/preview")
-        assert response.status_code == 200
-        assert response.headers["content-type"].startswith("text/html")
+        # Clear any profile environment variable to ensure default behavior
+        with patch.dict(os.environ, {"EXEC_PROFILE_ID": "default"}, clear=False):
+            # Test HTML with defaults
+            response = client.get("/digest/preview")
+            assert response.status_code == 200
+            assert response.headers["content-type"].startswith("text/html")
 
-        # Test JSON with defaults
-        response = client.get("/digest/preview.json")
-        assert response.status_code == 200
-        data = response.json()
-        assert data["source"] == "sample"
-        assert data["exec_name"] == "RPCK Biz Dev"
+            # Test JSON with defaults
+            response = client.get("/digest/preview.json")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["source"] == "sample"
+            assert data["exec_name"] == "RPCK Biz Dev"
 
     def test_preview_consistency_with_send(self):
         """Test that preview output is consistent with /digest/send output."""
@@ -235,7 +237,10 @@ class TestDigestPreview:
             )
         ]
 
-        with patch('app.rendering.context_builder.MockCalendarProvider.fetch_events', return_value=mock_events):
+        with patch('app.rendering.context_builder.select_calendar_provider') as mock_factory:
+            mock_provider = MagicMock()
+            mock_provider.fetch_events.return_value = mock_events
+            mock_factory.return_value = mock_provider
             response = client.get("/digest/preview.json?source=live&date=2025-09-08")
             data = response.json()
 

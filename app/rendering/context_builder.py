@@ -1,10 +1,63 @@
 from datetime import datetime
-from typing import Dict, Any, Literal, Optional
+from typing import Dict, Any, Literal, Optional, List
 
-from app.calendar.mock_provider import MockCalendarProvider
+from app.calendar.provider import select_calendar_provider
 from app.data.sample_digest import SAMPLE_MEETINGS
 from app.rendering.digest_renderer import _today_et_str, _get_timezone
 from app.enrichment.service import enrich_meetings
+from app.profile.store import get_profile
+
+
+def _apply_company_aliases(meetings: list[dict], aliases: Dict[str, List[str]]) -> list[dict]:
+    """Apply company aliases to canonicalize company names for enrichment."""
+    if not aliases:
+        return meetings
+
+    # Create reverse lookup: alias -> canonical name
+    alias_to_canonical = {}
+    for canonical, alias_list in aliases.items():
+        for alias in alias_list:
+            alias_to_canonical[alias.lower()] = canonical.lower()
+
+    for meeting in meetings:
+        # Check company field
+        if meeting.get("company") and isinstance(meeting["company"], dict):
+            company_name = meeting["company"].get("name", "").lower()
+            if company_name in alias_to_canonical:
+                meeting["company"]["name"] = alias_to_canonical[company_name].title()
+
+        # Check attendees for company names
+        for attendee in meeting.get("attendees", []):
+            if attendee.get("company"):
+                company_name = attendee["company"].lower()
+                if company_name in alias_to_canonical:
+                    attendee["company"] = alias_to_canonical[company_name].title()
+
+    return meetings
+
+
+def _trim_meeting_sections(meetings: list, max_items: Dict[str, int]) -> list:
+    """Trim meeting sections to respect max_items limits."""
+    for meeting in meetings:
+        # Handle both dict and Pydantic model
+        if hasattr(meeting, 'model_dump'):
+            # Pydantic model - convert to dict, trim, then back to model
+            meeting_dict = meeting.model_dump()
+            for section, max_count in max_items.items():
+                if section in meeting_dict and isinstance(meeting_dict[section], list):
+                    meeting_dict[section] = meeting_dict[section][:max_count]
+
+            # Update the model with trimmed data
+            for section, max_count in max_items.items():
+                if section in meeting_dict and isinstance(meeting_dict[section], list):
+                    setattr(meeting, section, meeting_dict[section])
+        else:
+            # Regular dict
+            for section, max_count in max_items.items():
+                if section in meeting and isinstance(meeting[section], list):
+                    meeting[section] = meeting[section][:max_count]
+
+    return meetings
 
 
 def _map_events_to_meetings(events: list[dict] | list) -> list[dict]:
@@ -47,27 +100,40 @@ def build_digest_context_with_provider(
     if not requested_date:
         requested_date = datetime.now().strftime("%Y-%m-%d")
 
+    # Load executive profile
+    profile = get_profile()
+
     actual_source = "sample"
     meetings: list[dict]
     if source == "live":
-        provider = MockCalendarProvider()
-        events = provider.fetch_events(requested_date)
-        if events:
-            meetings = _map_events_to_meetings([e.model_dump() for e in events])
-            actual_source = "live"
-        else:
+        try:
+            provider = select_calendar_provider()
+            events = provider.fetch_events(requested_date)
+            if events:
+                meetings = _map_events_to_meetings([e.model_dump() for e in events])
+                actual_source = "live"
+            else:
+                meetings = SAMPLE_MEETINGS
+        except Exception:
+            # Fallback to sample on any provider error
             meetings = SAMPLE_MEETINGS
     else:
         meetings = SAMPLE_MEETINGS
 
+    # Apply company aliases before enrichment
+    meetings = _apply_company_aliases(meetings, profile.company_aliases)
+
     # Optionally enrich meetings
     meetings_enriched = enrich_meetings(meetings)
 
+    # Apply profile max_items limits
+    meetings_trimmed = _trim_meeting_sections(meetings_enriched, profile.max_items)
+
     context = {
-        "meetings": meetings_enriched,
+        "meetings": meetings_trimmed,
         "date_human": _today_et_str(_get_timezone()),
         "current_year": datetime.now().strftime("%Y"),
-        "exec_name": exec_name or "RPCK Biz Dev",
+        "exec_name": exec_name or profile.exec_name,  # Use profile default unless overridden
         "source": actual_source,
     }
     return context

@@ -1,0 +1,48 @@
+{
+  "default": {
+    "id": "default",
+    "exec_name": "RPCK Biz Dev",
+    "default_recipients": ["bizdev@rpck.com"],
+    "sections_order": ["company", "news", "talking_points", "smart_questions"],
+    "max_items": {
+      "news": 5,
+      "talking_points": 3,
+      "smart_questions": 3
+    },
+    "company_aliases": {
+      "acme capital": ["acme", "acme vc", "acme capital llc"],
+      "techcorp": ["tech corp", "techcorp inc", "techcorp llc"],
+      "gridflow": ["gridflow b", "gridflow beta", "gridflow technologies"]
+    }
+  },
+  "chintan": {
+    "id": "chintan",
+    "exec_name": "Chintan Panchal",
+    "default_recipients": ["chintan@rpck.com", "carolyn@rpck.com"],
+    "sections_order": ["company", "news", "talking_points", "smart_questions"],
+    "max_items": {
+      "news": 3,
+      "talking_points": 2,
+      "smart_questions": 2
+    },
+    "company_aliases": {
+      "acme capital": ["acme", "acme vc", "acme capital llc"],
+      "techcorp": ["tech corp", "techcorp inc", "techcorp llc"]
+    }
+  },
+  "carolyn": {
+    "id": "carolyn",
+    "exec_name": "Carolyn",
+    "default_recipients": ["carolyn@rpck.com"],
+    "sections_order": ["company", "news", "talking_points", "smart_questions"],
+    "max_items": {
+      "news": 4,
+      "talking_points": 4,
+      "smart_questions": 4
+    },
+    "company_aliases": {
+      "acme capital": ["acme", "acme vc", "acme capital llc"],
+      "gridflow": ["gridflow b", "gridflow beta", "gridflow technologies"]
+    }
+  }
+}

@@ -6,7 +6,7 @@ References: Product Spec and Tech Plan.
 
 ---
 
-## ✅ What’s in this repo at project start
+## ✅ What's in this repo at project start
 
 - `app/main.py` — FastAPI entrypoint with a basic scheduler and healthcheck route.
 - `tests/test_smoke.py` — smoke test (`assert 1 + 1 == 2`).
@@ -14,6 +14,36 @@ References: Product Spec and Tech Plan.
 - `.pre-commit-config.yaml` — hooks: pre-commit hygiene, black, ruff, mypy.
 - `requirements.txt` — runtime deps.
 - `.env.example` — template for environment variables.
+
+## 📅 Calendar Integration
+
+The app supports multiple calendar providers through a pluggable architecture:
+
+- **Mock Provider** (default): Uses sample data from `app/data/sample_calendar.json`
+- **Microsoft Graph**: Live calendar integration with OAuth2 client credentials
+
+### Microsoft Graph Setup
+
+1. Set environment variables:
+   ```bash
+   CALENDAR_PROVIDER=ms_graph
+   MS_TENANT_ID=your-tenant-id
+   MS_CLIENT_ID=your-client-id
+   MS_CLIENT_SECRET=your-client-secret
+   MS_USER_EMAIL=user@yourdomain.com
+   ```
+
+2. The app will automatically fall back to sample data if:
+   - MS Graph credentials are missing
+   - API calls fail
+   - No events are found for the requested date
+
+### Preview Endpoints
+
+- `GET /digest/preview` — HTML preview (default)
+- `GET /digest/preview.json` — JSON preview
+- `GET /digest/preview?source=live` — Use live calendar data
+- `GET /digest/preview?source=sample` — Use sample data (default)
 
 ---
 
