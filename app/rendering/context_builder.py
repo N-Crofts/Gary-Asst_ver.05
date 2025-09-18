@@ -143,3 +143,107 @@ def build_digest_context_with_provider(
     return context
 
 
+def build_single_event_context(
+    event_id: str,
+    source: Literal["sample", "live"] = "sample",
+    date: Optional[str] = None,
+    exec_name: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Build context for a single event by ID.
+
+    Args:
+        event_id: The ID of the event to fetch
+        source: Data source ("sample" or "live")
+        date: Optional date for live data
+        exec_name: Optional executive name override
+
+    Returns:
+        Context dictionary with single meeting
+    """
+    requested_date = date
+    if not requested_date:
+        requested_date = datetime.now().strftime("%Y-%m-%d")
+
+    # Load executive profile
+    profile = get_profile()
+
+    actual_source = "sample"
+    meeting: Optional[dict] = None
+
+    if source == "live":
+        try:
+            provider = select_calendar_provider()
+            # For now, we'll fetch all events and find by ID
+            # In a real implementation, the provider would have a fetch_event_by_id method
+            events = provider.fetch_events(requested_date)
+            if events:
+                # Find event by ID (assuming event has an 'id' field)
+                for event in events:
+                    event_dict = event.model_dump() if hasattr(event, 'model_dump') else event
+                    if event_dict.get('id') == event_id:
+                        meetings = _map_events_to_meetings([event_dict])
+                        if meetings:
+                            meeting = meetings[0]
+                            actual_source = "live"
+                        break
+        except Exception:
+            # Fallback to sample on any provider error
+            pass
+
+    # If no meeting found in live data, try sample data
+    if not meeting:
+        # For sample data, we'll use a simple ID mapping
+        # In a real implementation, sample data would have proper IDs
+        if event_id == "sample-1" or event_id == "1":
+            meeting = SAMPLE_MEETINGS[0].copy() if SAMPLE_MEETINGS else None
+        else:
+            # Create a basic meeting structure for unknown IDs
+            meeting = {
+                "subject": f"Meeting {event_id}",
+                "start_time": "9:00 AM ET",
+                "location": "Not specified",
+                "attendees": [],
+                "company": None,
+                "news": [],
+                "talking_points": [],
+                "smart_questions": [],
+            }
+
+    if not meeting:
+        # Create a minimal meeting structure for missing events
+        meeting = {
+            "subject": "Meeting not found",
+            "start_time": "Not available",
+            "location": "Not available",
+            "attendees": [],
+            "company": None,
+            "news": [],
+            "talking_points": [],
+            "smart_questions": [],
+        }
+
+    # Apply company aliases before enrichment
+    meetings = [meeting]
+    meetings = _apply_company_aliases(meetings, profile.company_aliases)
+
+    # Optionally enrich meetings
+    meetings_enriched = enrich_meetings(meetings)
+
+    # Apply profile max_items limits
+    meetings_trimmed = _trim_meeting_sections(meetings_enriched, profile.max_items)
+
+    # Attach memory data (past meetings) to each meeting
+    meetings_with_memory = attach_memory_to_meetings(meetings_trimmed)
+
+    context = {
+        "meetings": meetings_with_memory,
+        "date_human": _today_et_str(_get_timezone()),
+        "current_year": datetime.now().strftime("%Y"),
+        "exec_name": exec_name or profile.exec_name,
+        "source": actual_source,
+        "event_id": event_id,  # Include event ID in context for reference
+    }
+    return context
+
+

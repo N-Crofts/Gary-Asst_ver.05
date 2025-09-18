@@ -3,7 +3,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from typing import Literal, Optional
 
 from app.rendering.digest_renderer import render_digest_html
-from app.rendering.context_builder import build_digest_context_with_provider
+from app.rendering.context_builder import build_digest_context_with_provider, build_single_event_context
 from app.schemas.preview import DigestPreviewModel, MeetingModel, Attendee, Company, NewsItem
 from app.core.config import load_config
 
@@ -145,5 +145,102 @@ async def preview_digest_json(
     )
 
     return JSONResponse(content=response.model_dump())
+
+
+@router.get("/preview/event/{event_id}.json")
+async def preview_single_event_json(
+    request: Request,
+    event_id: str,
+    source: Literal["sample", "live"] = Query("sample", description="Data source: sample or live"),
+    date: Optional[str] = Query(None, description="ISO date (YYYY-MM-DD) - ignored in MVP unless live path supports it"),
+    exec_name: Optional[str] = Query(None, description="Override header label")
+):
+    """
+    Preview a single event by ID as JSON.
+
+    Returns the structured event model that the template uses.
+    """
+    _require_api_key_if_configured(request)
+
+    if source not in ("sample", "live"):
+        raise HTTPException(status_code=400, detail="source must be 'sample' or 'live'")
+
+    # Build context using single event context builder
+    context = build_single_event_context(
+        event_id=event_id,
+        source=source,
+        date=date,
+        exec_name=exec_name
+    )
+
+    # Convert meetings to Pydantic models
+    meetings = [_convert_meeting_to_model(meeting) for meeting in context["meetings"]]
+
+    # Build response model
+    response = DigestPreviewModel(
+        ok=True,
+        source=context["source"],
+        date_human=context["date_human"],
+        exec_name=context["exec_name"],
+        meetings=meetings
+    )
+
+    return JSONResponse(content=response.model_dump())
+
+
+@router.get("/preview/event/{event_id}")
+async def preview_single_event_html(
+    request: Request,
+    event_id: str,
+    source: Literal["sample", "live"] = Query("sample", description="Data source: sample or live"),
+    date: Optional[str] = Query(None, description="ISO date (YYYY-MM-DD) - ignored in MVP unless live path supports it"),
+    exec_name: Optional[str] = Query(None, description="Override header label"),
+    format: Optional[str] = Query(None, description="Response format: json")
+):
+    """
+    Preview a single event by ID as HTML or JSON.
+
+    Returns HTML by default, or JSON if format=json or Accept: application/json.
+    """
+    _require_api_key_if_configured(request)
+
+    if source not in ("sample", "live"):
+        raise HTTPException(status_code=400, detail="source must be 'sample' or 'live'")
+
+    # Check if JSON format is requested
+    accept_json = request.headers.get("accept", "").startswith("application/json")
+    format_json = format == "json"
+
+    if accept_json or format_json:
+        # Return JSON response
+        return await preview_single_event_json(request, event_id, source, date, exec_name)
+    else:
+        # Return HTML response
+        return await _render_single_event_html(request, event_id, source, date, exec_name)
+
+
+async def _render_single_event_html(
+    request: Request,
+    event_id: str,
+    source: Literal["sample", "live"],
+    date: Optional[str],
+    exec_name: Optional[str]
+) -> HTMLResponse:
+    """Internal function to render single event HTML preview."""
+    # Build context using single event context builder
+    context = build_single_event_context(
+        event_id=event_id,
+        source=source,
+        date=date,
+        exec_name=exec_name
+    )
+
+    # Add request to context for template rendering
+    context["request"] = request
+
+    # Render HTML
+    html = render_digest_html(context)
+
+    return HTMLResponse(content=html)
 
 
