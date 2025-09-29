@@ -10,6 +10,8 @@ from app.llm.service import select_llm_client
 from app.enrichment.news_provider import StubNewsProvider
 from app.enrichment.news_bing import create_bing_news_provider
 from app.utils.cache import news_cache
+from app.people.normalizer import build_person_hint, is_internal_attendee
+from app.people.resolver import create_people_resolver, PeopleResolver
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +46,64 @@ def _news_cache_ttl_min() -> int:
         return int(os.getenv("NEWS_CACHE_TTL_MIN", "60"))
     except ValueError:
         return 60
+
+
+def _people_enabled() -> bool:
+    return os.getenv("PEOPLE_NEWS_ENABLED", "false").lower() == "true"
+
+
+def _fetch_people_intel_for_attendees(meeting: Dict[str, Any]) -> Dict[str, List[Dict[str, str]]]:
+    """Fetch people intel for external attendees."""
+    if not _people_enabled():
+        return {}
+
+    people_intel = {}
+    attendees = meeting.get("attendees", [])
+
+    if not attendees:
+        return people_intel
+
+    # Create people resolver
+    resolver = create_people_resolver()
+
+    # Set up news provider for people resolver
+    news_provider = _select_news_provider()
+    resolver.set_news_provider(news_provider)
+
+    # Process each attendee
+    for attendee in attendees:
+        if not attendee.get("name"):
+            continue
+
+        # Skip internal attendees
+        person_hint = build_person_hint(attendee, meeting)
+        if is_internal_attendee(person_hint):
+            continue
+
+        try:
+            # Resolve person using metadata-only search
+            results = resolver.resolve_person(person_hint, meeting)
+
+            if results:
+                # Convert results to simple format for template
+                intel_items = []
+                for result in results:
+                    intel_items.append({
+                        "title": result.title,
+                        "url": result.url,
+                        "confidence": result.confidence
+                    })
+
+                people_intel[attendee["name"]] = intel_items
+                logger.info(f"Found {len(intel_items)} people intel items for {attendee['name']}")
+            else:
+                logger.debug(f"No people intel found for {attendee['name']}")
+
+        except Exception as e:
+            logger.warning(f"Failed to fetch people intel for {attendee['name']}: {e}")
+            continue
+
+    return people_intel
 
 
 def _select_news_provider():
@@ -170,6 +230,9 @@ def enrich_meetings(meetings: List[Dict[str, Any]], now: float | None = None, ti
             talking_points = fixture.get("talking_points", [])
             smart_questions = fixture.get("smart_questions", [])
 
+        # Fetch people intel for external attendees
+        people_intel = _fetch_people_intel_for_attendees(m)
+
         enriched.append(
             MeetingWithEnrichment(
                 subject=m.get("subject", ""),
@@ -180,6 +243,7 @@ def enrich_meetings(meetings: List[Dict[str, Any]], now: float | None = None, ti
                 news=news,
                 talking_points=talking_points,
                 smart_questions=smart_questions,
+                people_intel=people_intel,
             )
         )
 

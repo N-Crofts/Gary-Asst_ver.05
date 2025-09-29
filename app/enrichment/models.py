@@ -23,5 +23,6 @@ class MeetingWithEnrichment(BaseModel):
     talking_points: List[str] = []
     smart_questions: List[str] = []
     memory: Optional[dict] = None
+    people_intel: Optional[dict] = None
 
 
