@@ -43,7 +43,7 @@ def _allow_override() -> bool:
 
 
 def _get_sender() -> str:
-    return os.getenv("DEFAULT_SENDER", "gary@rpck.com")
+    return os.getenv("DEFAULT_SENDER", "gary-asst@rpck.com")
 
 
 def _assemble_live_meetings() -> list:

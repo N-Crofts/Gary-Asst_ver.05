@@ -12,7 +12,7 @@ class AppConfig(BaseModel):
     smtp_password: Optional[str] = None
     smtp_use_tls: bool = True
     sendgrid_api_key: Optional[str] = None
-    default_sender: str = "gary@rpck.com"
+    default_sender: str = "gary-asst@rpck.com"
     default_recipients: list[str] = []
     allow_recipient_override: bool = False
     timezone: str = "America/New_York"
@@ -32,7 +32,7 @@ def load_config() -> AppConfig:
         smtp_password=os.getenv("SMTP_PASSWORD"),
         smtp_use_tls=os.getenv("SMTP_USE_TLS", "true").lower() == "true",
         sendgrid_api_key=os.getenv("SENDGRID_API_KEY"),
-        default_sender=os.getenv("DEFAULT_SENDER", "gary@rpck.com"),
+        default_sender=os.getenv("DEFAULT_SENDER", "gary-asst@rpck.com"),
         default_recipients=recipients,
         allow_recipient_override=os.getenv("ALLOW_RECIPIENT_OVERRIDE", "false").lower() == "true",
         timezone=os.getenv("TIMEZONE", "America/New_York"),
