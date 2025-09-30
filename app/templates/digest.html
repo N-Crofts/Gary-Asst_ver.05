@@ -95,6 +95,11 @@
                                 {% endfor %}
                               </ul>
                             </div>
+                          {% else %}
+                            <!-- Gentle empty state for news -->
+                            <div style="margin:12px 0 4px 0; padding:8px 10px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; font-size:12px; color:#64748b;">
+                              <span style="font-weight:600;">Recent news:</span> Not available
+                            </div>
                           {% endif %}
 
                           <!-- Talking points -->
@@ -107,6 +112,11 @@
                                 {% endfor %}
                               </ol>
                             </div>
+                          {% else %}
+                            <!-- Gentle empty state for talking points -->
+                            <div style="margin:12px 0 4px 0; padding:8px 10px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; font-size:12px; color:#64748b;">
+                              <span style="font-weight:600;">Talking points:</span> Not available
+                            </div>
                           {% endif %}
 
                           <!-- Smart questions -->
@@ -118,6 +128,11 @@
                                   <li style="margin:6px 0;">{{ q }}</li>
                                 {% endfor %}
                               </ul>
+                            </div>
+                          {% else %}
+                            <!-- Gentle empty state for smart questions -->
+                            <div style="margin:12px 0 0 0; padding:10px 12px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; font-size:12px; color:#64748b;">
+                              <span style="font-weight:600;">Smart questions:</span> Not available
                             </div>
                           {% endif %}
 
@@ -136,6 +151,11 @@
                                 {% endfor %}
                               </ul>
                             </div>
+                          {% else %}
+                            <!-- Gentle empty state for memory -->
+                            <div style="margin:12px 0 0 0; padding:10px 12px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; font-size:12px; color:#64748b;">
+                              <span style="font-weight:600;">Recent with them:</span> Not available
+                            </div>
                           {% endif %}
                         </td>
                       </tr>
@@ -144,52 +164,14 @@
                 </tr>
               {% endfor %}
             {% else %}
-              <!-- Fallback sample if no meetings provided -->
+              <!-- Empty state when no meetings -->
               <tr>
                 <td style="padding:12px 24px 16px 24px;">
                   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse; background:#ffffff; border:1px solid #e5e7eb; border-radius:10px;">
                     <tr>
-                      <td style="padding:14px 16px; border-left:6px solid #A42021;">
-                        <div style="display:block; margin:0 0 4px 0; font-size:16px; font-weight:800; color:#111827;">Sample: RPCK × Acme Capital — Portfolio Strategy Check-in</div>
-                        <div style="font-size:12px; color:#6b7280; margin:0 0 8px 0;">
-                          Starts: <strong style="color:#374151;">9:30 AM ET</strong> • Zoom
-                        </div>
-                        <div style="margin:8px 0 6px 0; font-size:12px; color:#374151;">
-                          <span style="font-weight:700;">Attendees:</span>
-                          <div style="margin-top:6px;">
-                            <span style="display:inline-block; font-size:12px; margin:4px 6px 0 0; padding:5px 8px; border-radius:999px; background:#f3f4f6; border:1px solid #e5e7eb;">Chintan Panchal, Managing Partner (RPCK)</span>
-                            <span style="display:inline-block; font-size:12px; margin:4px 6px 0 0; padding:5px 8px; border-radius:999px; background:#f3f4f6; border:1px solid #e5e7eb;">Carolyn, Chief of Staff (RPCK)</span>
-                            <span style="display:inline-block; font-size:12px; margin:4px 6px 0 0; padding:5px 8px; border-radius:999px; background:#f3f4f6; border:1px solid #e5e7eb;">A. Rivera, Partner (Acme Capital)</span>
-                          </div>
-                        </div>
-
-                        <!-- Enrichment in fallback -->
-                        <div style="margin:12px 0 4px 0;">
-                          <div style="font-weight:800; font-size:13px; color:#0f172a; margin-bottom:6px;">Recent news</div>
-                          <ul style="margin:0; padding-left:18px; font-size:13px;">
-                            <li style="margin:6px 0;"><a href="https://example.com/acme-fund-iv" style="color:#3a5d80; text-decoration:underline;">Acme closes $250M Fund IV focused on decarbonization</a></li>
-                            <li style="margin:6px 0;"><a href="https://example.com/gridflow-series-b" style="color:#3a5d80; text-decoration:underline;">Acme leads GridFlow Series B; overlap with RPCK client</a></li>
-                            <li style="margin:6px 0;"><a href="https://example.com/infra-partnership" style="color:#3a5d80; text-decoration:underline;">Partnership announced in climate infra</a></li>
-                          </ul>
-                        </div>
-
-                        <div style="margin:12px 0 4px 0;">
-                          <div style="font-weight:800; font-size:13px; color:#0f172a; margin-bottom:6px;">Talking points (prioritize)</div>
-                          <ol style="margin:0; padding-left:18px; font-size:13px;">
-                            <li style="margin:6px 0;">Confirm Q4 fund-formation timeline & counsel needs.</li>
-                            <li style="margin:6px 0;">Explore co-marketing with GridFlow case study.</li>
-                            <li style="margin:6px 0;">Flag cross-border structuring considerations early.</li>
-                          </ol>
-                        </div>
-
-                        <div style="margin:12px 0 0 0; padding:10px 12px; background:#eaf2e9; border:1px solid #dbe7da; border-radius:8px;">
-                          <div style="font-weight:800; font-size:13px; color:#064e3b; margin-bottom:6px;">Smart questions</div>
-                          <ul style="margin:0; padding-left:18px; font-size:13px;">
-                            <li style="margin:6px 0;">What milestones unlock the next capital call, and where might legal support accelerate them?</li>
-                            <li style="margin:6px 0;">Any portfolio companies evaluating EU/US entity changes in 2025 that we should prep guidance for?</li>
-                            <li style="margin:6px 0;">Where do you anticipate the biggest regulatory friction in the next 2 quarters?</li>
-                          </ul>
-                        </div>
+                      <td style="padding:20px 16px; text-align:center;">
+                        <div style="font-size:16px; font-weight:600; color:#6b7280; margin-bottom:8px;">No meetings for this date.</div>
+                        <div style="font-size:13px; color:#9ca3af;">Check your calendar or try a different date.</div>
                       </td>
                     </tr>
                   </table>

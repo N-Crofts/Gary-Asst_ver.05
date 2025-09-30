@@ -9,6 +9,28 @@ from app.profile.store import get_profile
 from app.memory.service import attach_memory_to_meetings
 
 
+def _format_time_for_display(iso_time: str) -> str:
+    """Format ISO time string for display in digest."""
+    try:
+        # Extract time part (HH:MM)
+        time_part = iso_time.split("T")[1].split("-")[0][:5]
+        hour, minute = time_part.split(":")
+        hour_int = int(hour)
+
+        # Convert to 12-hour format
+        if hour_int == 0:
+            return f"12:{minute} AM ET"
+        elif hour_int < 12:
+            return f"{hour_int}:{minute} AM ET"
+        elif hour_int == 12:
+            return f"12:{minute} PM ET"
+        else:
+            return f"{hour_int - 12}:{minute} PM ET"
+    except (ValueError, IndexError):
+        # Fallback to original time if parsing fails
+        return iso_time
+
+
 def _apply_company_aliases(meetings: list[dict], aliases: Dict[str, List[str]]) -> list[dict]:
     """Apply company aliases to canonicalize company names for enrichment."""
     if not aliases:
@@ -80,7 +102,7 @@ def _map_events_to_meetings(events: list[dict] | list) -> list[dict]:
             {
                 "subject": subject,
                 # For MVP, show only time component in ET readable form; use ISO string's time
-                "start_time": start_time.split("T")[1].split("-")[0][:5] + " AM ET" if "T" in start_time else start_time,
+                "start_time": _format_time_for_display(start_time) if "T" in start_time else start_time,
                 "location": location,
                 "attendees": attendees,
                 "company": None,
@@ -104,8 +126,9 @@ def build_digest_context_with_provider(
     # Load executive profile
     profile = get_profile()
 
-    actual_source = "sample"
-    meetings: list[dict]
+    actual_source = "live"
+    meetings: list[dict] = []
+
     if source == "live":
         try:
             provider = select_calendar_provider()
@@ -114,12 +137,17 @@ def build_digest_context_with_provider(
                 meetings = _map_events_to_meetings([e.model_dump() for e in events])
                 actual_source = "live"
             else:
-                meetings = SAMPLE_MEETINGS
+                # No events for this date - meetings will be empty
+                meetings = []
+                actual_source = "live"
         except Exception:
-            # Fallback to sample on any provider error
-            meetings = SAMPLE_MEETINGS
+            # Provider error - meetings will be empty
+            meetings = []
+            actual_source = "live"
     else:
+        # Sample mode - use sample data
         meetings = SAMPLE_MEETINGS
+        actual_source = "sample"
 
     # Apply company aliases before enrichment
     meetings = _apply_company_aliases(meetings, profile.company_aliases)
