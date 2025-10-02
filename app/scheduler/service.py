@@ -9,6 +9,7 @@ from app.routes.digest import _build_digest_context, _get_default_recipients, _g
 from app.services.emailer import select_emailer_from_env
 from app.observability.logger import log_event, timing, log_error
 from app.routes.health import update_last_run
+from app.channels.slack_client import post_digest_to_slack
 
 logger = logging.getLogger(__name__)
 
@@ -177,6 +178,22 @@ class SchedulerService:
 
             self._last_run = datetime.now(ZoneInfo(self._timezone))
             logger.info(f"Scheduled digest sent successfully. Message ID: {message_id}")
+
+            # Post to Slack if enabled
+            try:
+                meeting_count = len(context.get("meetings", []))
+                slack_success = await post_digest_to_slack(
+                    subject=subject,
+                    meeting_count=meeting_count,
+                    base_url=os.getenv("BASE_URL", "http://localhost:8000")
+                )
+                if slack_success:
+                    logger.info("Slack notification posted successfully")
+                else:
+                    logger.info("Slack notification skipped (not enabled or failed)")
+            except Exception as slack_error:
+                logger.warning(f"Slack notification failed: {slack_error}")
+                # Don't fail the entire digest send if Slack fails
 
         except Exception as e:
             # Log error with structured data
