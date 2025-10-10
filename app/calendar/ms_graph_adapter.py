@@ -8,16 +8,18 @@ import httpx
 from fastapi import HTTPException
 
 from app.calendar.types import Event, Attendee
+from app.core.config import load_config
 
 
 class MSGraphAdapter:
     """Microsoft Graph calendar adapter that fetches events and normalizes them to Event objects."""
 
-    def __init__(self, tenant_id: str, client_id: str, client_secret: str, user_email: str):
+    def __init__(self, tenant_id: str, client_id: str, client_secret: str, user_email: Optional[str] = None, allowed_mailbox_group: Optional[str] = None):
         self.tenant_id = tenant_id
         self.client_id = client_id
         self.client_secret = client_secret
         self.user_email = user_email
+        self.allowed_mailbox_group = allowed_mailbox_group
         self._access_token: Optional[str] = None
         self._token_expires_at: float = 0.0
 
@@ -93,31 +95,58 @@ class MSGraphAdapter:
 
         return attendees
 
-    def fetch_events(self, date: str, tz: Optional[str] = None, user: Optional[str] = None) -> List[Event]:
-        """
-        Fetch calendar events for the given date from Microsoft Graph.
+    def _get_group_members(self, group_id: str) -> List[str]:
+        """Fetch all members of a security group."""
+        access_token = self._get_access_token()
 
-        Args:
-            date: ISO date string (YYYY-MM-DD)
-            tz: Timezone (ignored, always uses ET)
-            user: User email (ignored, uses configured user_email)
+        # First, get the group object to find its ID
+        group_url = f"https://graph.microsoft.com/v1.0/groups"
+        params = {"$filter": f"displayName eq '{group_id}'"}
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
 
-        Returns:
-            List of normalized Event objects
-        """
         try:
-            # Validate date format
-            datetime.strptime(date, "%Y-%m-%d")
-        except ValueError:
-            return []
+            with httpx.Client(timeout=15) as client:
+                response = client.get(group_url, headers=headers, params=params)
+                response.raise_for_status()
+                data = response.json()
 
-        # Get access token
+                if not data.get("value"):
+                    raise HTTPException(status_code=404, detail=f"Group '{group_id}' not found")
+
+                group_object_id = data["value"][0]["id"]
+
+                # Now get the members of the group
+                members_url = f"https://graph.microsoft.com/v1.0/groups/{group_object_id}/members"
+                members_params = {"$select": "mail,userPrincipalName"}
+
+                response = client.get(members_url, headers=headers, params=members_params)
+                response.raise_for_status()
+                members_data = response.json()
+
+                # Extract email addresses from members
+                member_emails = []
+                for member in members_data.get("value", []):
+                    # Prefer mail field, fallback to userPrincipalName
+                    email = member.get("mail") or member.get("userPrincipalName")
+                    if email:
+                        member_emails.append(email)
+
+                return member_emails
+
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Failed to fetch group members: {exc}")
+
+    def _fetch_events_for_user(self, user_email: str, date: str) -> List[Event]:
+        """Fetch events for a specific user."""
         access_token = self._get_access_token()
 
         # Build Graph API URL for calendar events
-        # Use the configured user email or the provided user
-        target_user = user or self.user_email
-        url = f"https://graph.microsoft.com/v1.0/users/{target_user}/calendar/events"
+        url = f"https://graph.microsoft.com/v1.0/users/{user_email}/calendar/events"
 
         # Calculate start and end of day in ET
         et_tz = ZoneInfo("America/New_York")
@@ -147,9 +176,11 @@ class MSGraphAdapter:
                 if response.status_code == 401:
                     raise HTTPException(status_code=503, detail="MS Graph authentication failed")
                 elif response.status_code == 403:
-                    raise HTTPException(status_code=503, detail="MS Graph permission denied")
+                    # Permission denied for this user - skip silently
+                    return []
                 elif response.status_code == 404:
-                    raise HTTPException(status_code=503, detail="MS Graph user not found")
+                    # User not found - skip silently
+                    return []
 
                 response.raise_for_status()
                 data = response.json()
@@ -189,7 +220,85 @@ class MSGraphAdapter:
         except HTTPException:
             raise
         except Exception as exc:
-            raise HTTPException(status_code=503, detail=f"MS Graph API error: {exc}")
+            # For individual user errors, return empty list rather than failing completely
+            return []
+
+    def fetch_events(self, date: str, tz: Optional[str] = None, user: Optional[str] = None) -> List[Event]:
+        """
+        Fetch calendar events for the given date from Microsoft Graph.
+
+        Args:
+            date: ISO date string (YYYY-MM-DD)
+            tz: Timezone (ignored, always uses ET)
+            user: User email (ignored, uses configured user_email or group members)
+
+        Returns:
+            List of normalized Event objects
+        """
+        try:
+            # Validate date format
+            datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            return []
+
+        all_events = []
+
+        # If group-based access is configured, fetch events for all group members
+        if self.allowed_mailbox_group:
+            try:
+                # Get all members of the allowed group
+                group_members = self._get_group_members(self.allowed_mailbox_group)
+
+                # Fetch events for each group member
+                for member_email in group_members:
+                    try:
+                        member_events = self._fetch_events_for_user(member_email, date)
+                        all_events.extend(member_events)
+                    except Exception:
+                        # Skip individual user errors, continue with other members
+                        continue
+
+            except HTTPException:
+                raise
+            except Exception as exc:
+                raise HTTPException(status_code=503, detail=f"Failed to fetch group events: {exc}")
+
+        # If single user is configured, fetch events for that user
+        elif self.user_email:
+            try:
+                user_events = self._fetch_events_for_user(self.user_email, date)
+                all_events.extend(user_events)
+            except HTTPException:
+                raise
+            except Exception as exc:
+                raise HTTPException(status_code=503, detail=f"Failed to fetch user events: {exc}")
+
+        else:
+            raise HTTPException(
+                status_code=503,
+                detail="MS Graph configuration missing: Either MS_USER_EMAIL or ALLOWED_MAILBOX_GROUP must be provided"
+            )
+
+        # Sort all events by start time (convert to sortable format)
+        def get_sortable_time(event):
+            # Extract time from "9:30 AM ET" format for proper sorting
+            time_str = event.start_time
+            if "AM" in time_str or "PM" in time_str:
+                # Convert "9:30 AM ET" to sortable format
+                time_part = time_str.split(" ")[0]  # "9:30"
+                am_pm = time_str.split(" ")[1]     # "AM"
+                hour, minute = time_part.split(":")
+                hour = int(hour)
+                if am_pm == "PM" and hour != 12:
+                    hour += 12
+                elif am_pm == "AM" and hour == 12:
+                    hour = 0
+                return f"{hour:02d}:{minute}"
+            return time_str
+
+        all_events.sort(key=get_sortable_time)
+
+        return all_events
 
 
 def create_ms_graph_adapter() -> MSGraphAdapter:
@@ -198,16 +307,25 @@ def create_ms_graph_adapter() -> MSGraphAdapter:
     client_id = os.getenv("MS_CLIENT_ID")
     client_secret = os.getenv("MS_CLIENT_SECRET")
     user_email = os.getenv("MS_USER_EMAIL")
+    allowed_mailbox_group = os.getenv("ALLOWED_MAILBOX_GROUP")
 
-    if not all([tenant_id, client_id, client_secret, user_email]):
+    if not all([tenant_id, client_id, client_secret]):
         raise HTTPException(
             status_code=503,
-            detail="MS Graph configuration missing: MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET, MS_USER_EMAIL required"
+            detail="MS Graph configuration missing: MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET required"
+        )
+
+    # Either user_email or allowed_mailbox_group must be provided
+    if not user_email and not allowed_mailbox_group:
+        raise HTTPException(
+            status_code=503,
+            detail="MS Graph configuration missing: Either MS_USER_EMAIL or ALLOWED_MAILBOX_GROUP must be provided"
         )
 
     return MSGraphAdapter(
         tenant_id=tenant_id,
         client_id=client_id,
         client_secret=client_secret,
-        user_email=user_email
+        user_email=user_email,
+        allowed_mailbox_group=allowed_mailbox_group
     )

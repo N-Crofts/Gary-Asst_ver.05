@@ -20,6 +20,8 @@ class AppConfig(BaseModel):
     slack_enabled: bool = False
     slack_bot_token: Optional[str] = None
     slack_channel_id: Optional[str] = None
+    # Calendar group access configuration
+    allowed_mailbox_group: Optional[str] = None
 
 
 def load_config() -> AppConfig:
@@ -43,6 +45,7 @@ def load_config() -> AppConfig:
         slack_enabled=os.getenv("SLACK_ENABLED", "false").lower() == "true",
         slack_bot_token=os.getenv("SLACK_BOT_TOKEN"),
         slack_channel_id=os.getenv("SLACK_CHANNEL_ID"),
+        allowed_mailbox_group=os.getenv("ALLOWED_MAILBOX_GROUP"),
     )
 
 
