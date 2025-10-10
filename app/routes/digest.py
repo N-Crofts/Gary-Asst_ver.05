@@ -8,6 +8,7 @@ from app.schemas.digest import DigestSendRequest, DigestSendResponse
 from app.services.emailer import select_emailer_from_env
 from app.rendering.digest_renderer import render_digest_html
 from app.rendering.plaintext import render_plaintext
+from app.rendering.context_builder import build_digest_context_with_provider
 from app.data.sample_digest import SAMPLE_MEETINGS
 from app.core.config import load_config
 from app.observability.logger import log_event, timing
@@ -65,9 +66,9 @@ def _build_digest_context() -> dict:
 
 
 @router.get("/send")
-async def get_send_digest(request: Request, send: bool = False, recipients: list[str] | None = None, subject: str | None = None, source: str | None = "sample"):
+async def get_send_digest(request: Request, send: bool = False, recipients: list[str] | None = None, subject: str | None = None, source: str | None = "sample", mailbox: str | None = None):
     _require_api_key_if_configured(request)
-    body = DigestSendRequest(send=send, recipients=recipients, subject=subject, source=source)  # type: ignore[arg-type]
+    body = DigestSendRequest(send=send, recipients=recipients, subject=subject, source=source, mailbox=mailbox)  # type: ignore[arg-type]
     return await _handle_send(request, body)
 
 
@@ -85,19 +86,21 @@ async def _handle_send(request: Request, body: DigestSendRequest):
         raise HTTPException(status_code=400, detail="Recipient override not allowed")
 
     data_source = body.source or "sample"
-    meetings = SAMPLE_MEETINGS if data_source == "sample" else (_assemble_live_meetings() or SAMPLE_MEETINGS)
 
-    context = {
-        "request": request,
-        "meetings": meetings,
-        "exec_name": "Biz Dev",
-        "date_human": _today_et_str(_get_timezone()),
-        "current_year": datetime.now().strftime("%Y"),
-    }
+    # Build context using the context builder with mailbox support
+    context = build_digest_context_with_provider(
+        source=data_source,
+        mailbox=body.mailbox
+    )
+    context["request"] = request
+
     html = render_digest_html(context)
     plaintext = render_plaintext(context)
 
-    recipients_final = _get_default_recipients()
+    # Get profile for default recipients
+    from app.profile.store import get_profile
+    profile = get_profile(mailbox=body.mailbox)
+    recipients_final = profile.default_recipients
     if body.recipients is not None and _allow_override():
         recipients_final = [str(r) for r in body.recipients]
 

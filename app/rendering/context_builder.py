@@ -118,13 +118,14 @@ def build_digest_context_with_provider(
     source: Literal["sample", "live"],
     date: Optional[str] = None,
     exec_name: Optional[str] = None,
+    mailbox: Optional[str] = None,
 ) -> Dict[str, Any]:
     requested_date = date
     if not requested_date:
         requested_date = datetime.now().strftime("%Y-%m-%d")
 
-    # Load executive profile
-    profile = get_profile()
+    # Load executive profile (use mailbox if provided)
+    profile = get_profile(mailbox=mailbox)
 
     actual_source = "live"
     meetings: list[dict] = []
@@ -176,6 +177,7 @@ def build_single_event_context(
     source: Literal["sample", "live"] = "sample",
     date: Optional[str] = None,
     exec_name: Optional[str] = None,
+    mailbox: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Build context for a single event by ID.
@@ -185,6 +187,7 @@ def build_single_event_context(
         source: Data source ("sample" or "live")
         date: Optional date for live data
         exec_name: Optional executive name override
+        mailbox: Optional mailbox to determine profile
 
     Returns:
         Context dictionary with single meeting
@@ -193,8 +196,8 @@ def build_single_event_context(
     if not requested_date:
         requested_date = datetime.now().strftime("%Y-%m-%d")
 
-    # Load executive profile
-    profile = get_profile()
+    # Load executive profile (use mailbox if provided)
+    profile = get_profile(mailbox=mailbox)
 
     actual_source = "sample"
     meeting: Optional[dict] = None

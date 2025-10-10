@@ -69,6 +69,7 @@ async def preview_digest_html(
     source: Literal["sample", "live"] = Query("sample", description="Data source: sample or live"),
     date: Optional[str] = Query(None, description="ISO date (YYYY-MM-DD) - ignored in MVP unless live path supports it"),
     exec_name: Optional[str] = Query(None, description="Override header label"),
+    mailbox: Optional[str] = Query(None, description="Mailbox address to determine profile"),
     format: Optional[str] = Query(None, description="Response format: json")
 ):
     """
@@ -87,21 +88,22 @@ async def preview_digest_html(
 
     if accept_json or format_json:
         # Return JSON response
-        return await preview_digest_json(request, source, date, exec_name)
+        return await preview_digest_json(request, source, date, exec_name, mailbox)
     else:
         # Return HTML response
-        return await _render_html_preview(request, source, date, exec_name)
+        return await _render_html_preview(request, source, date, exec_name, mailbox)
 
 
 async def _render_html_preview(
     request: Request,
     source: Literal["sample", "live"],
     date: Optional[str],
-    exec_name: Optional[str]
+    exec_name: Optional[str],
+    mailbox: Optional[str]
 ) -> HTMLResponse:
     """Internal function to render HTML preview."""
     # Build context using shared context builder
-    context = build_digest_context_with_provider(source=source, date=date, exec_name=exec_name)
+    context = build_digest_context_with_provider(source=source, date=date, exec_name=exec_name, mailbox=mailbox)
 
     # Add request to context for template rendering
     context["request"] = request
@@ -117,7 +119,8 @@ async def preview_digest_json(
     request: Request,
     source: Literal["sample", "live"] = Query("sample", description="Data source: sample or live"),
     date: Optional[str] = Query(None, description="ISO date (YYYY-MM-DD) - ignored in MVP unless live path supports it"),
-    exec_name: Optional[str] = Query(None, description="Override header label")
+    exec_name: Optional[str] = Query(None, description="Override header label"),
+    mailbox: Optional[str] = Query(None, description="Mailbox address to determine profile")
 ):
     """
     Preview the digest as JSON.
@@ -130,7 +133,7 @@ async def preview_digest_json(
         raise HTTPException(status_code=400, detail="source must be 'sample' or 'live'")
 
     # Build context using shared context builder
-    context = build_digest_context_with_provider(source=source, date=date, exec_name=exec_name)
+    context = build_digest_context_with_provider(source=source, date=date, exec_name=exec_name, mailbox=mailbox)
 
     # Convert meetings to Pydantic models
     meetings = [_convert_meeting_to_model(meeting) for meeting in context["meetings"]]
@@ -153,7 +156,8 @@ async def preview_single_event_json(
     event_id: str,
     source: Literal["sample", "live"] = Query("sample", description="Data source: sample or live"),
     date: Optional[str] = Query(None, description="ISO date (YYYY-MM-DD) - ignored in MVP unless live path supports it"),
-    exec_name: Optional[str] = Query(None, description="Override header label")
+    exec_name: Optional[str] = Query(None, description="Override header label"),
+    mailbox: Optional[str] = Query(None, description="Mailbox address to determine profile")
 ):
     """
     Preview a single event by ID as JSON.
@@ -170,7 +174,8 @@ async def preview_single_event_json(
         event_id=event_id,
         source=source,
         date=date,
-        exec_name=exec_name
+        exec_name=exec_name,
+        mailbox=mailbox
     )
 
     # Convert meetings to Pydantic models
@@ -195,6 +200,7 @@ async def preview_single_event_html(
     source: Literal["sample", "live"] = Query("sample", description="Data source: sample or live"),
     date: Optional[str] = Query(None, description="ISO date (YYYY-MM-DD) - ignored in MVP unless live path supports it"),
     exec_name: Optional[str] = Query(None, description="Override header label"),
+    mailbox: Optional[str] = Query(None, description="Mailbox address to determine profile"),
     format: Optional[str] = Query(None, description="Response format: json")
 ):
     """
@@ -213,10 +219,10 @@ async def preview_single_event_html(
 
     if accept_json or format_json:
         # Return JSON response
-        return await preview_single_event_json(request, event_id, source, date, exec_name)
+        return await preview_single_event_json(request, event_id, source, date, exec_name, mailbox)
     else:
         # Return HTML response
-        return await _render_single_event_html(request, event_id, source, date, exec_name)
+        return await _render_single_event_html(request, event_id, source, date, exec_name, mailbox)
 
 
 async def _render_single_event_html(
@@ -224,7 +230,8 @@ async def _render_single_event_html(
     event_id: str,
     source: Literal["sample", "live"],
     date: Optional[str],
-    exec_name: Optional[str]
+    exec_name: Optional[str],
+    mailbox: Optional[str]
 ) -> HTMLResponse:
     """Internal function to render single event HTML preview."""
     # Build context using single event context builder
@@ -232,7 +239,8 @@ async def _render_single_event_html(
         event_id=event_id,
         source=source,
         date=date,
-        exec_name=exec_name
+        exec_name=exec_name,
+        mailbox=mailbox
     )
 
     # Add request to context for template rendering

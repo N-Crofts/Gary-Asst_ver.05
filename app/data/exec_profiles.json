@@ -18,6 +18,7 @@
   "chintan": {
     "id": "chintan",
     "exec_name": "Chintan Panchal",
+    "mailbox": "chintan@rpck.com",
     "default_recipients": ["chintan@rpck.com", "carolyn@rpck.com"],
     "sections_order": ["company", "news", "talking_points", "smart_questions"],
     "max_items": {
@@ -33,6 +34,7 @@
   "carolyn": {
     "id": "carolyn",
     "exec_name": "Carolyn",
+    "mailbox": "carolyn@rpck.com",
     "default_recipients": ["carolyn@rpck.com"],
     "sections_order": ["company", "news", "talking_points", "smart_questions"],
     "max_items": {
@@ -43,6 +45,24 @@
     "company_aliases": {
       "acme capital": ["acme", "acme vc", "acme capital llc"],
       "gridflow": ["gridflow b", "gridflow beta", "gridflow technologies"]
+    }
+  },
+  "sorum.crofts@rpck.com": {
+    "id": "sorum",
+    "exec_name": "Sorum Crofts",
+    "mailbox": "sorum.crofts@rpck.com",
+    "default_recipients": ["sorum.crofts@rpck.com", "bizdev@rpck.com"],
+    "sections_order": ["company", "news", "talking_points", "smart_questions"],
+    "max_items": {
+      "news": 6,
+      "talking_points": 4,
+      "smart_questions": 4
+    },
+    "company_aliases": {
+      "acme capital": ["acme", "acme vc", "acme capital llc"],
+      "techcorp": ["tech corp", "techcorp inc", "techcorp llc"],
+      "gridflow": ["gridflow b", "gridflow beta", "gridflow technologies"],
+      "venture partners": ["vp", "venture partners llc", "venture partners inc"]
     }
   }
 }

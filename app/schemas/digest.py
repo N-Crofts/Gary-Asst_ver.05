@@ -8,6 +8,7 @@ class DigestSendRequest(BaseModel):
     recipients: Optional[List[EmailStr]] = None
     subject: Optional[str] = None
     source: Optional[Literal["sample", "live"]] = "sample"
+    mailbox: Optional[str] = None
 
 
 class DigestSendResponse(BaseModel):
