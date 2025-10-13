@@ -1,11 +1,13 @@
 from fastapi import APIRouter, Request, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 from typing import Literal, Optional
+from datetime import datetime
 
 from app.rendering.digest_renderer import render_digest_html
 from app.rendering.context_builder import build_digest_context_with_provider, build_single_event_context
 from app.schemas.preview import DigestPreviewModel, MeetingModel, Attendee, Company, NewsItem
 from app.core.config import load_config
+from app.storage.cache import get_preview_cache
 
 
 router = APIRouter()
@@ -111,7 +113,81 @@ async def _render_html_preview(
     # Render HTML
     html = render_digest_html(context)
 
+    # Cache the result if it's for today
+    if date is None or date == datetime.now().strftime("%Y-%m-%d"):
+        cache = get_preview_cache()
+        # Convert context to serializable format
+        context_for_cache = {
+            "source": context["source"],
+            "date_human": context["date_human"],
+            "exec_name": context["exec_name"],
+            "meetings": [meeting.model_dump() for meeting in context["meetings"]]
+        }
+        cache_date = date or datetime.now().strftime("%Y-%m-%d")
+        cache.set(mailbox, cache_date, html, context_for_cache)
+
     return HTMLResponse(content=html)
+
+
+@router.get("/preview/latest")
+@router.get("/preview/latest.json")
+async def preview_digest_latest(
+    request: Request,
+    mailbox: Optional[str] = Query(None, description="Mailbox address to determine profile"),
+    format: Optional[str] = Query(None, description="Response format: json")
+):
+    """
+    Get the latest cached preview for today.
+
+    Returns the most recently cached HTML or JSON preview if it's within the TTL window.
+    If no cached version exists or it's expired, returns a 404.
+    """
+    _require_api_key_if_configured(request)
+
+    # Get today's date
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    # Try to get cached data
+    cache = get_preview_cache()
+    cached_data = cache.get(mailbox, today)
+
+    if cached_data is None:
+        raise HTTPException(status_code=404, detail="No cached preview available for today")
+
+    # Check if JSON format is requested
+    accept_json = request.headers.get("accept", "").startswith("application/json")
+    format_json = format == "json"
+    path_json = request.url.path.endswith(".json")
+
+    if accept_json or format_json or path_json:
+        # Return JSON response from cached context
+        context = cached_data['context']
+
+        # Convert meetings to Pydantic models (context["meetings"] are already dicts from cache)
+        meetings = [_convert_meeting_to_model(meeting) for meeting in context["meetings"]]
+
+        # Build response model
+        response = DigestPreviewModel(
+            ok=True,
+            source=context["source"],
+            date_human=context["date_human"],
+            exec_name=context["exec_name"],
+            meetings=meetings
+        )
+
+        return JSONResponse(content=response.model_dump())
+    else:
+        # Return HTML response from cache or generate from context
+        if cached_data['html']:
+            return HTMLResponse(content=cached_data['html'])
+        else:
+            # Generate HTML from cached context
+            context = cached_data['context']
+            # Convert dict meetings back to objects for rendering
+            context["meetings"] = [_convert_meeting_to_model(meeting) for meeting in context["meetings"]]
+            context["request"] = request
+            html = render_digest_html(context)
+            return HTMLResponse(content=html)
 
 
 @router.get("/preview.json")
@@ -146,6 +222,21 @@ async def preview_digest_json(
         exec_name=context["exec_name"],
         meetings=meetings
     )
+
+    # Cache the result if it's for today (same as HTML preview)
+    if date is None or date == datetime.now().strftime("%Y-%m-%d"):
+        cache = get_preview_cache()
+        # Convert context to serializable format
+        context_for_cache = {
+            "source": context["source"],
+            "date_human": context["date_human"],
+            "exec_name": context["exec_name"],
+            "meetings": [meeting.model_dump() for meeting in meetings]  # Convert to dict
+        }
+        # For JSON endpoint, we cache the context but not the HTML
+        # The latest endpoint will generate HTML from the cached context
+        cache_date = date or datetime.now().strftime("%Y-%m-%d")
+        cache.set(mailbox, cache_date, "", context_for_cache)
 
     return JSONResponse(content=response.model_dump())
 
@@ -250,5 +341,66 @@ async def _render_single_event_html(
     html = render_digest_html(context)
 
     return HTMLResponse(content=html)
+
+
+@router.get("/preview/latest")
+@router.get("/preview/latest.json")
+async def preview_digest_latest(
+    request: Request,
+    mailbox: Optional[str] = Query(None, description="Mailbox address to determine profile"),
+    format: Optional[str] = Query(None, description="Response format: json")
+):
+    """
+    Get the latest cached preview for today.
+
+    Returns the most recently cached HTML or JSON preview if it's within the TTL window.
+    If no cached version exists or it's expired, returns a 404.
+    """
+    _require_api_key_if_configured(request)
+
+    # Get today's date
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    # Try to get cached data
+    cache = get_preview_cache()
+    cached_data = cache.get(mailbox, today)
+
+    if cached_data is None:
+        raise HTTPException(status_code=404, detail="No cached preview available for today")
+
+    # Check if JSON format is requested
+    accept_json = request.headers.get("accept", "").startswith("application/json")
+    format_json = format == "json"
+    path_json = request.url.path.endswith(".json")
+
+    if accept_json or format_json or path_json:
+        # Return JSON response from cached context
+        context = cached_data['context']
+
+        # Convert meetings to Pydantic models (context["meetings"] are already dicts from cache)
+        meetings = [_convert_meeting_to_model(meeting) for meeting in context["meetings"]]
+
+        # Build response model
+        response = DigestPreviewModel(
+            ok=True,
+            source=context["source"],
+            date_human=context["date_human"],
+            exec_name=context["exec_name"],
+            meetings=meetings
+        )
+
+        return JSONResponse(content=response.model_dump())
+    else:
+        # Return HTML response from cache or generate from context
+        if cached_data['html']:
+            return HTMLResponse(content=cached_data['html'])
+        else:
+            # Generate HTML from cached context
+            context = cached_data['context']
+            # Convert dict meetings back to objects for rendering
+            context["meetings"] = [_convert_meeting_to_model(meeting) for meeting in context["meetings"]]
+            context["request"] = request
+            html = render_digest_html(context)
+            return HTMLResponse(content=html)
 
 
