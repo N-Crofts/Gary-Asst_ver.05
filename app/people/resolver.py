@@ -12,19 +12,16 @@ from dataclasses import dataclass
 import logging
 
 from app.people.normalizer import PersonHint, is_internal_attendee
+from app.people.reranker import PersonReranker, PersonResult
 from app.utils.cache import TTLCache
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
-class PersonResult:
-    """Result of a person search with confidence scoring."""
-    title: str
-    url: str
-    confidence: float
-    source: str  # "site" or "name"
-    matched_anchors: List[str]
+class SearchSignals:
+    """Signals used for person search scoring."""
+    positive_signals: List[str]
     negative_signals: List[str]
 
 
@@ -46,6 +43,9 @@ class PeopleResolver:
 
         # News provider (will be injected)
         self.news_provider = None
+
+        # Initialize re-ranker
+        self.reranker = PersonReranker()
 
         logger.info(f"PeopleResolver initialized: enabled={self.enabled}, strict={self.strict_mode}, "
                    f"min_confidence={self.confidence_min}, show_medium={self.show_medium}")
@@ -87,11 +87,14 @@ class PeopleResolver:
             # Score and filter results
             scored_results = self._score_and_filter_results(results, person_hint)
 
-            # Cache results
-            self.cache.set(cache_key, scored_results)
+            # Re-rank results using LLM if enabled
+            reranked_results = self.reranker.rerank_results(scored_results, person_hint, meeting_context)
 
-            logger.info(f"Resolved {person_hint.name}: {len(scored_results)} results")
-            return scored_results
+            # Cache results
+            self.cache.set(cache_key, reranked_results)
+
+            logger.info(f"Resolved {person_hint.name}: {len(reranked_results)} results")
+            return reranked_results
 
         except Exception as e:
             logger.error(f"Error resolving person {person_hint.name}: {e}")

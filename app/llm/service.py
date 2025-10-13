@@ -20,6 +20,11 @@ class LLMClient(ABC):
         """Generate smart questions for a meeting."""
         pass
 
+    @abstractmethod
+    def rerank_person_results(self, prompt: str) -> str:
+        """Re-rank person-news results using LLM."""
+        pass
+
 
 class StubLLMClient(LLMClient):
     """Deterministic stub LLM client for testing and when LLM is disabled."""
@@ -121,6 +126,33 @@ class StubLLMClient(LLMClient):
                 ])
 
         return questions[:3]  # Limit to 3 questions
+
+    def rerank_person_results(self, prompt: str) -> str:
+        """Return deterministic ranking for testing."""
+        # Extract number of candidates from prompt
+        lines = prompt.split('\n')
+        candidate_count = 0
+        in_candidates_section = False
+
+        for line in lines:
+            line = line.strip()
+            if line.startswith('CANDIDATE ARTICLES:'):
+                in_candidates_section = True
+                continue
+
+            if in_candidates_section:
+                # Look for numbered candidates (1., 2., etc.)
+                if line and line[0].isdigit() and '.' in line:
+                    candidate_count += 1
+                elif line and not line.startswith(' ') and not line.startswith('TASK:'):
+                    # End of candidates section
+                    break
+
+        if candidate_count == 0:
+            return "[1]"
+
+        # Return original order for stub client
+        return str(list(range(1, candidate_count + 1)))
 
     def _extract_company_name(self, meeting: Dict[str, Any]) -> str:
         """Extract company name from meeting data."""
@@ -252,6 +284,54 @@ Return only the 3 questions, one per line, without numbering or bullets."""
                 status_code=503,
                 detail=f"OpenAI API error: {str(e)}"
             )
+
+    def _call_openai_string(self, prompt: str) -> str:
+        """Make API call to OpenAI and return raw string response."""
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+
+        data = {
+            "model": self.model,
+            "messages": [
+                {"role": "user", "content": prompt}
+            ],
+            "max_tokens": 200,
+            "temperature": 0.7
+        }
+
+        try:
+            with httpx.Client(timeout=self.timeout_seconds) as client:
+                response = client.post(
+                    f"{self.base_url}/chat/completions",
+                    headers=headers,
+                    json=data
+                )
+
+                if response.status_code == 200:
+                    result = response.json()
+                    content = result["choices"][0]["message"]["content"]
+                    return content.strip()
+                else:
+                    raise HTTPException(
+                        status_code=503,
+                        detail=f"OpenAI API error: {response.status_code} {response.text}"
+                    )
+        except httpx.TimeoutException:
+            raise HTTPException(
+                status_code=503,
+                detail=f"OpenAI API timeout after {self.timeout_seconds}s"
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=503,
+                detail=f"OpenAI API error: {str(e)}"
+            )
+
+    def rerank_person_results(self, prompt: str) -> str:
+        """Re-rank person results using OpenAI API."""
+        return self._call_openai_string(prompt)
 
     def _extract_company_name(self, meeting: Dict[str, Any]) -> str:
         """Extract company name from meeting data."""
