@@ -13,6 +13,7 @@ import logging
 
 from app.people.normalizer import PersonHint, is_internal_attendee
 from app.people.reranker import PersonReranker, PersonResult
+from app.people.embeddings import PersonEmbeddings
 from app.utils.cache import TTLCache
 
 logger = logging.getLogger(__name__)
@@ -44,8 +45,9 @@ class PeopleResolver:
         # News provider (will be injected)
         self.news_provider = None
 
-        # Initialize re-ranker
+        # Initialize re-ranker and embeddings
         self.reranker = PersonReranker()
+        self.embeddings = PersonEmbeddings()
 
         logger.info(f"PeopleResolver initialized: enabled={self.enabled}, strict={self.strict_mode}, "
                    f"min_confidence={self.confidence_min}, show_medium={self.show_medium}")
@@ -87,8 +89,11 @@ class PeopleResolver:
             # Score and filter results
             scored_results = self._score_and_filter_results(results, person_hint)
 
+            # Boost results with embedding similarity if enabled
+            boosted_results = self.embeddings.boost_results_with_similarity(scored_results, person_hint, meeting_context)
+
             # Re-rank results using LLM if enabled
-            reranked_results = self.reranker.rerank_results(scored_results, person_hint, meeting_context)
+            reranked_results = self.reranker.rerank_results(boosted_results, person_hint, meeting_context)
 
             # Cache results
             self.cache.set(cache_key, reranked_results)

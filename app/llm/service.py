@@ -1,10 +1,14 @@
 import os
 import time
+import logging
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 
 import httpx
+import numpy as np
 from fastapi import HTTPException
+
+logger = logging.getLogger(__name__)
 
 
 class LLMClient(ABC):
@@ -23,6 +27,11 @@ class LLMClient(ABC):
     @abstractmethod
     def rerank_person_results(self, prompt: str) -> str:
         """Re-rank person-news results using LLM."""
+        pass
+
+    @abstractmethod
+    def get_embedding(self, text: str) -> Optional[np.ndarray]:
+        """Get embedding vector for text."""
         pass
 
 
@@ -153,6 +162,25 @@ class StubLLMClient(LLMClient):
 
         # Return original order for stub client
         return str(list(range(1, candidate_count + 1)))
+
+    def get_embedding(self, text: str) -> Optional[np.ndarray]:
+        """Return deterministic fake embedding for testing."""
+        # Create a deterministic fake embedding based on text hash
+        import hashlib
+
+        # Use text hash to create deterministic vector
+        text_hash = hashlib.md5(text.encode()).hexdigest()
+
+        # Convert hash to deterministic vector (1536 dimensions like OpenAI text-embedding-3-small)
+        vector = np.zeros(1536)
+        for i, char in enumerate(text_hash[:16]):  # Use first 16 chars of hash
+            # Map hex char to float in range [-1, 1]
+            val = (int(char, 16) - 7.5) / 7.5
+            # Distribute across vector dimensions
+            for j in range(96):  # 1536 / 16 = 96
+                vector[i * 96 + j] = val * (0.1 ** (j % 3))  # Decay factor
+
+        return vector
 
     def _extract_company_name(self, meeting: Dict[str, Any]) -> str:
         """Extract company name from meeting data."""
@@ -332,6 +360,32 @@ Return only the 3 questions, one per line, without numbering or bullets."""
     def rerank_person_results(self, prompt: str) -> str:
         """Re-rank person results using OpenAI API."""
         return self._call_openai_string(prompt)
+
+    def get_embedding(self, text: str) -> Optional[np.ndarray]:
+        """Get embedding vector using OpenAI API."""
+        try:
+            with httpx.Client(timeout=self.timeout_seconds) as client:
+                response = client.post(
+                    f"{self.base_url}/embeddings",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": "text-embedding-3-small",
+                        "input": text
+                    }
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                # Extract embedding vector
+                embedding = data["data"][0]["embedding"]
+                return np.array(embedding, dtype=np.float32)
+
+        except Exception as e:
+            logger.error(f"Error getting embedding from OpenAI: {e}")
+            return None
 
     def _extract_company_name(self, meeting: Dict[str, Any]) -> str:
         """Extract company name from meeting data."""

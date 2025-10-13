@@ -25,6 +25,11 @@ class PersonResult:
     confidence: float
     source: str  # "site" or "name"
     matched_anchors: List[str]
+    negative_signals: List[str] = None
+
+    def __post_init__(self):
+        if self.negative_signals is None:
+            self.negative_signals = []
 
 
 @dataclass
