@@ -1,0 +1,18 @@
+{
+  "name": "gary-asst-graph-test",
+  "version": "1.0.0",
+  "description": "Microsoft Graph API test suite for Gary-Asst",
+  "type": "module",
+  "main": "graph-test.js",
+  "scripts": {
+    "test": "node graph-test.js",
+    "install-deps": "npm install node-fetch dotenv"
+  },
+  "dependencies": {
+    "node-fetch": "^3.3.2",
+    "dotenv": "^16.3.1"
+  },
+  "keywords": ["microsoft-graph", "test", "gary-asst"],
+  "author": "Gary-Asst Team",
+  "license": "MIT"
+}
