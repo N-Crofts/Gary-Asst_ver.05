@@ -7,11 +7,12 @@ This directory contains test scripts to verify Microsoft Graph API integration w
 First, create a `.env` file with the provided credentials:
 
 ```bash
-# Copy the provided values into .env
-MS_TENANT_ID=156ac674-e455-4115-8c54-a0f13eec48c7
-MS_CLIENT_ID=9a129d47-0d4e-4f0d-9c3d-9974a50dcf72
-MS_CLIENT_SECRET=<secret from Tabush>
-MS_USER_EMAIL=sorum.crofts@rpck.com
+# Copy the provided values into .env (using canonical variable names)
+AZURE_TENANT_ID=156ac674-e455-4115-8c54-a0f13eec48c7
+AZURE_CLIENT_ID=9a129d47-0d4e-4f0d-9c3d-9974a50dcf72
+AZURE_CLIENT_SECRET=<secret from Tabush>
+MS_CALENDAR_USER=sorum.crofts@rpck.com
+MS_SENDER_USER=gary-asst@rpck.com
 ```
 
 ## Test Options
@@ -43,19 +44,19 @@ node graph-test.js
 1. **Calendar Read Test**:
    - HTTP 200 response
    - JSON list of events returned
-   - Shows up to 5 events for `sorum.crofts@rpck.com`
+   - Shows up to 5 events for the calendar user (`MS_CALENDAR_USER`)
 
 2. **Email Send Test**:
    - HTTP 202 (Accepted) response
-   - Email arrives in Sorum's inbox
-   - Message appears in `gary-asst@rpck.com` Sent Items
+   - Email arrives in the calendar user's inbox
+   - Message appears in the sender user's (`MS_SENDER_USER`) Sent Items
 
 ### ❌ Common Issues & Solutions
 
 | Error | Cause | Solution |
 |-------|-------|----------|
-| `401 invalid_client / AADSTS7000215` | Bad `MS_CLIENT_SECRET` | Re-paste exact "Value" from Tabush |
-| `401 unauthorized_client / AADSTS700016` | Wrong `MS_CLIENT_ID` or app not found | Verify client ID in Azure Portal |
+| `401 invalid_client / AADSTS7000215` | Bad `AZURE_CLIENT_SECRET` | Re-paste exact "Value" from Tabush |
+| `401 unauthorized_client / AADSTS700016` | Wrong `AZURE_CLIENT_ID` or app not found | Verify client ID in Azure Portal |
 | `403 Insufficient privileges` | Missing admin consent | Verify Application permissions in Azure Portal |
 | `403 Access is denied` (calendar) | Exchange Application Access Policy mismatch | Ask Tabush to re-check policy bindings |
 | `404 Mailbox not found` | Typo in user principal | Ensure exact email addresses |

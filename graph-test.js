@@ -3,18 +3,19 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const {
-  MS_TENANT_ID,
-  MS_CLIENT_ID,
-  MS_CLIENT_SECRET,
-  MS_USER_EMAIL,
+  AZURE_TENANT_ID,
+  AZURE_CLIENT_ID,
+  AZURE_CLIENT_SECRET,
+  MS_CALENDAR_USER,
+  MS_SENDER_USER,
 } = process.env;
 
-const tokenEndpoint = `https://login.microsoftonline.com/${MS_TENANT_ID}/oauth2/v2.0/token`;
+const tokenEndpoint = `https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/token`;
 
 async function getToken() {
   const body = new URLSearchParams({
-    client_id: MS_CLIENT_ID,
-    client_secret: MS_CLIENT_SECRET,
+    client_id: AZURE_CLIENT_ID,
+    client_secret: AZURE_CLIENT_SECRET,
     grant_type: "client_credentials",
     scope: "https://graph.microsoft.com/.default",
   });
@@ -64,8 +65,8 @@ async function main() {
   console.log("✅ Token acquired.");
 
   // 1) Calendar read
-  const eventsUrl = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(MS_USER_EMAIL)}/events?$top=5`;
-  console.log(`📅 Reading events for ${MS_USER_EMAIL}…`);
+  const eventsUrl = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(MS_CALENDAR_USER)}/events?$top=5`;
+  console.log(`📅 Reading events for ${MS_CALENDAR_USER}…`);
   const events = await graphGet(eventsUrl, token);
   console.log(`✅ Got ${events.value?.length ?? 0} events`);
   (events.value || []).forEach((e, i) => {
@@ -75,16 +76,16 @@ async function main() {
   });
 
   // 2) Send mail
-  const sendUrl = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent("gary-asst@rpck.com")}/sendMail`;
+  const sendUrl = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(MS_SENDER_USER)}/sendMail`;
   const mail = {
     message: {
       subject: "Gary-Asst Graph test",
-      body: { contentType: "Text", content: "This is a Graph Mail.Send (Application) test." },
-      toRecipients: [{ emailAddress: { address: MS_USER_EMAIL } }],
+      body: { contentType: "Text", content: "Graph Mail.Send (Application) test." },
+      toRecipients: [{ emailAddress: { address: MS_CALENDAR_USER } }],
     },
     saveToSentItems: true,
   };
-  console.log("📧 Sending test email from gary-asst@rpck.com…");
+  console.log(`📧 Sending test email from ${MS_SENDER_USER}…`);
   const status = await graphPost(sendUrl, token, mail);
   console.log(`✅ sendMail returned HTTP ${status} (202 expected).`);
 
@@ -94,8 +95,8 @@ async function main() {
   console.log("   - Email send: ✅");
   console.log("");
   console.log("📋 Next steps:");
-  console.log("   1. Check Sorum's inbox for the test email");
-  console.log("   2. Check gary-asst@rpck.com Sent Items for the sent message");
+  console.log(`   1. Check ${MS_CALENDAR_USER}'s inbox for the test email`);
+  console.log(`   2. Check ${MS_SENDER_USER} Sent Items for the sent message`);
   console.log("   3. Verify auth + permissions are fully working");
 }
 

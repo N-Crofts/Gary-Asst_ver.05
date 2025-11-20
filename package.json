@@ -9,10 +9,14 @@
     "install-deps": "npm install node-fetch dotenv"
   },
   "dependencies": {
-    "node-fetch": "^3.3.2",
-    "dotenv": "^16.3.1"
+    "dotenv": "^16.6.1",
+    "node-fetch": "^3.3.2"
   },
-  "keywords": ["microsoft-graph", "test", "gary-asst"],
+  "keywords": [
+    "microsoft-graph",
+    "test",
+    "gary-asst"
+  ],
   "author": "Gary-Asst Team",
   "license": "MIT"
 }

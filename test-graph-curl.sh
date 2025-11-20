@@ -2,18 +2,21 @@
 
 # Microsoft Graph API Test Script (curl)
 # Test calendar read and email send functionality
+# Uses canonical environment variable names
 
-# Set environment variables (replace with actual values)
-export MS_TENANT_ID="156ac674-e455-4115-8c54-a0f13eec48c7"
-export MS_CLIENT_ID="9a129d47-0d4e-4f0d-9c3d-9974a50dcf72"
-export MS_CLIENT_SECRET="<secret from Tabush>"
-export MS_USER_EMAIL="sorum.crofts@rpck.com"
+# Load environment variables from .env file (if present)
+# Or set them directly here:
+# export AZURE_TENANT_ID="156ac674-e455-4115-8c54-a0f13eec48c7"
+# export AZURE_CLIENT_ID="9a129d47-0d4e-4f0d-9c3d-9974a50dcf72"
+# export AZURE_CLIENT_SECRET="Gyi8QkDGX2DcHbon1PgmOz._mCdn3LHFRD.dvo"
+# export MS_CALENDAR_USER="sorum.crofts@rpck.com"
+# export MS_SENDER_USER="gary-asst@rpck.com"
 
 echo "🔐 Getting access token..."
 TOKEN=$(curl -s \
-  -X POST "https://login.microsoftonline.com/$MS_TENANT_ID/oauth2/v2.0/token" \
+  -X POST "https://login.microsoftonline.com/$AZURE_TENANT_ID/oauth2/v2.0/token" \
   -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "client_id=$MS_CLIENT_ID&client_secret=$MS_CLIENT_SECRET&grant_type=client_credentials&scope=https%3A%2F%2Fgraph.microsoft.com%2F.default" \
+  -d "client_id=$AZURE_CLIENT_ID&client_secret=$AZURE_CLIENT_SECRET&grant_type=client_credentials&scope=https%3A%2F%2Fgraph.microsoft.com%2F.default" \
   | jq -r '.access_token')
 
 if [ "$TOKEN" = "null" ] || [ -z "$TOKEN" ]; then
@@ -24,21 +27,21 @@ fi
 echo "✅ Token acquired successfully"
 
 echo ""
-echo "📅 Testing calendar read (top 5 events for $MS_USER_EMAIL)..."
-curl -i -X GET "https://graph.microsoft.com/v1.0/users/$MS_USER_EMAIL/events?\$top=5" \
+echo "📅 Testing calendar read (top 5 events for $MS_CALENDAR_USER)..."
+curl -i -X GET "https://graph.microsoft.com/v1.0/users/$MS_CALENDAR_USER/events?\$top=5" \
   -H "Authorization: Bearer $TOKEN"
 
 echo ""
 echo ""
-echo "📧 Testing email send (as gary-asst@rpck.com)..."
-curl -i -X POST "https://graph.microsoft.com/v1.0/users/gary-asst@rpck.com/sendMail" \
+echo "📧 Testing email send (as $MS_SENDER_USER)..."
+curl -i -X POST "https://graph.microsoft.com/v1.0/users/$MS_SENDER_USER/sendMail" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "message": {
       "subject": "Gary-Asst Graph test",
-      "body": { "contentType": "Text", "content": "This is a Graph Mail.Send (Application) test." },
-      "toRecipients": [{ "emailAddress": { "address": "'"$MS_USER_EMAIL"'" } }]
+      "body": { "contentType": "Text", "content": "Graph Mail.Send (Application) test." },
+      "toRecipients": [{ "emailAddress": { "address": "'"$MS_CALENDAR_USER"'" } }]
     },
     "saveToSentItems": true
   }'
