@@ -3,7 +3,7 @@ from typing import Dict, Any, Literal, Optional, List
 
 from app.calendar.provider import select_calendar_provider
 from app.data.sample_digest import SAMPLE_MEETINGS
-from app.rendering.digest_renderer import _today_et_str, _get_timezone
+from app.rendering.digest_renderer import _today_et_str, _format_date_et_str, _get_timezone
 from app.enrichment.service import enrich_meetings
 from app.profile.store import get_profile
 from app.memory.service import attach_memory_to_meetings
@@ -162,10 +162,24 @@ def build_digest_context_with_provider(
     # Attach memory data (past meetings) to each meeting
     meetings_with_memory = attach_memory_to_meetings(meetings_trimmed)
 
+    # Format date_human based on requested date (or today if not specified)
+    tz_name = _get_timezone()
+    if requested_date:
+        date_human = _format_date_et_str(requested_date, tz_name)
+        # Extract year from requested date for current_year
+        try:
+            date_obj = datetime.strptime(requested_date, "%Y-%m-%d")
+            current_year = date_obj.strftime("%Y")
+        except ValueError:
+            current_year = datetime.now().strftime("%Y")
+    else:
+        date_human = _today_et_str(tz_name)
+        current_year = datetime.now().strftime("%Y")
+
     context = {
         "meetings": meetings_with_memory,
-        "date_human": _today_et_str(_get_timezone()),
-        "current_year": datetime.now().strftime("%Y"),
+        "date_human": date_human,
+        "current_year": current_year,
         "exec_name": exec_name or profile.exec_name,  # Use profile default unless overridden
         "source": actual_source,
     }
@@ -267,10 +281,24 @@ def build_single_event_context(
     # Attach memory data (past meetings) to each meeting
     meetings_with_memory = attach_memory_to_meetings(meetings_trimmed)
 
+    # Format date_human based on requested date (or today if not specified)
+    tz_name = _get_timezone()
+    if requested_date:
+        date_human = _format_date_et_str(requested_date, tz_name)
+        # Extract year from requested date for current_year
+        try:
+            date_obj = datetime.strptime(requested_date, "%Y-%m-%d")
+            current_year = date_obj.strftime("%Y")
+        except ValueError:
+            current_year = datetime.now().strftime("%Y")
+    else:
+        date_human = _today_et_str(tz_name)
+        current_year = datetime.now().strftime("%Y")
+
     context = {
         "meetings": meetings_with_memory,
-        "date_human": _today_et_str(_get_timezone()),
-        "current_year": datetime.now().strftime("%Y"),
+        "date_human": date_human,
+        "current_year": current_year,
         "exec_name": exec_name or profile.exec_name,
         "source": actual_source,
         "event_id": event_id,  # Include event ID in context for reference

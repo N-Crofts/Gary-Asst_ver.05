@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timedelta
 from typing import List, Protocol
 
 from app.calendar.types import Event
@@ -12,6 +13,39 @@ class CalendarProvider(Protocol):
         All times must be ISO 8601 strings in ET.
         """
         ...
+
+
+def fetch_events_range(provider: CalendarProvider, start_date: str, end_date: str) -> List[Event]:
+    """
+    Fetch events across a date range (inclusive).
+
+    Args:
+        provider: Calendar provider instance
+        start_date: Start date in YYYY-MM-DD format (inclusive)
+        end_date: End date in YYYY-MM-DD format (inclusive)
+
+    Returns:
+        List of events across the date range
+    """
+    try:
+        start = datetime.strptime(start_date, "%Y-%m-%d")
+        end = datetime.strptime(end_date, "%Y-%m-%d")
+    except ValueError:
+        return []
+
+    if start > end:
+        return []
+
+    all_events = []
+    current = start
+
+    while current <= end:
+        day_str = current.strftime("%Y-%m-%d")
+        day_events = provider.fetch_events(day_str)
+        all_events.extend(day_events)
+        current += timedelta(days=1)
+
+    return all_events
 
 
 def select_calendar_provider() -> CalendarProvider:

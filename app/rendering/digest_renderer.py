@@ -20,6 +20,22 @@ def _today_et_str(tz_name: str) -> str:
     return f"{now.strftime('%a')}, {now.strftime('%b')} {day}, {now.strftime('%Y')}"
 
 
+def _format_date_et_str(date_str: str, tz_name: str) -> str:
+    """Format a specific date (YYYY-MM-DD) in the specified timezone."""
+    try:
+        # Parse the date string
+        date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+        # Get timezone
+        tz = ZoneInfo(tz_name)
+        # Localize the date to the timezone (at midnight)
+        date_tz = date_obj.replace(tzinfo=tz)
+        day = str(int(date_tz.strftime("%d")))
+        return f"{date_tz.strftime('%a')}, {date_tz.strftime('%b')} {day}, {date_tz.strftime('%Y')}"
+    except (ValueError, TypeError):
+        # Fallback to today if parsing fails
+        return _today_et_str(tz_name)
+
+
 def _get_timezone() -> str:
     """Get timezone from environment or default to America/New_York."""
     return os.getenv("TIMEZONE", "America/New_York")

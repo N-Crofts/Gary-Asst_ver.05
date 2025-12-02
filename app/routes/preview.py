@@ -10,6 +10,40 @@ from app.core.config import load_config
 from app.storage.cache import get_preview_cache
 
 
+def _validate_date(date_str: Optional[str]) -> Optional[str]:
+    """
+    Validate date string format (YYYY-MM-DD).
+
+    Returns the date string if valid, None if None, or raises HTTPException for invalid format.
+    """
+    if date_str is None:
+        return None
+
+    # First check the format strictly - must be exactly YYYY-MM-DD
+    import re
+    if not re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid date format: '{date_str}'. Expected format: YYYY-MM-DD (e.g., 2025-12-05)"
+        )
+
+    try:
+        # Try to parse the date to validate it's a real date
+        parsed_date = datetime.strptime(date_str, "%Y-%m-%d")
+        # Verify the parsed date matches the input (catches cases like 2025-12-5 which becomes 2025-12-05)
+        if parsed_date.strftime("%Y-%m-%d") != date_str:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid date format: '{date_str}'. Expected format: YYYY-MM-DD (e.g., 2025-12-05)"
+            )
+        return date_str
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid date format: '{date_str}'. Expected format: YYYY-MM-DD (e.g., 2025-12-05)"
+        )
+
+
 router = APIRouter()
 
 
@@ -69,7 +103,7 @@ def _convert_meeting_to_model(meeting: dict) -> MeetingModel:
 async def preview_digest_html(
     request: Request,
     source: Literal["sample", "live"] = Query("sample", description="Data source: sample or live"),
-    date: Optional[str] = Query(None, description="ISO date (YYYY-MM-DD) - ignored in MVP unless live path supports it"),
+    date: Optional[str] = Query(None, description="ISO date (YYYY-MM-DD). Defaults to today if omitted."),
     exec_name: Optional[str] = Query(None, description="Override header label"),
     mailbox: Optional[str] = Query(None, description="Mailbox address to determine profile"),
     format: Optional[str] = Query(None, description="Response format: json")
@@ -78,11 +112,17 @@ async def preview_digest_html(
     Preview the digest as HTML or JSON.
 
     Returns HTML by default, or JSON if format=json or Accept: application/json.
+
+    The date parameter allows previewing any single date (past or future) in YYYY-MM-DD format.
+    If omitted, defaults to today's date.
     """
     _require_api_key_if_configured(request)
 
     if source not in ("sample", "live"):
         raise HTTPException(status_code=400, detail="source must be 'sample' or 'live'")
+
+    # Validate date format
+    _validate_date(date)
 
     # Check if JSON format is requested
     accept_json = request.headers.get("accept", "").startswith("application/json")
@@ -194,7 +234,7 @@ async def preview_digest_latest(
 async def preview_digest_json(
     request: Request,
     source: Literal["sample", "live"] = Query("sample", description="Data source: sample or live"),
-    date: Optional[str] = Query(None, description="ISO date (YYYY-MM-DD) - ignored in MVP unless live path supports it"),
+    date: Optional[str] = Query(None, description="ISO date (YYYY-MM-DD). Defaults to today if omitted."),
     exec_name: Optional[str] = Query(None, description="Override header label"),
     mailbox: Optional[str] = Query(None, description="Mailbox address to determine profile")
 ):
@@ -202,11 +242,17 @@ async def preview_digest_json(
     Preview the digest as JSON.
 
     Returns the structured digest model that the template uses.
+
+    The date parameter allows previewing any single date (past or future) in YYYY-MM-DD format.
+    If omitted, defaults to today's date.
     """
     _require_api_key_if_configured(request)
 
     if source not in ("sample", "live"):
         raise HTTPException(status_code=400, detail="source must be 'sample' or 'live'")
+
+    # Validate date format
+    _validate_date(date)
 
     # Build context using shared context builder
     context = build_digest_context_with_provider(source=source, date=date, exec_name=exec_name, mailbox=mailbox)
@@ -246,7 +292,7 @@ async def preview_single_event_json(
     request: Request,
     event_id: str,
     source: Literal["sample", "live"] = Query("sample", description="Data source: sample or live"),
-    date: Optional[str] = Query(None, description="ISO date (YYYY-MM-DD) - ignored in MVP unless live path supports it"),
+    date: Optional[str] = Query(None, description="ISO date (YYYY-MM-DD). Defaults to today if omitted."),
     exec_name: Optional[str] = Query(None, description="Override header label"),
     mailbox: Optional[str] = Query(None, description="Mailbox address to determine profile")
 ):
@@ -254,11 +300,17 @@ async def preview_single_event_json(
     Preview a single event by ID as JSON.
 
     Returns the structured event model that the template uses.
+
+    The date parameter allows previewing events from a specific date (past or future) in YYYY-MM-DD format.
+    If omitted, defaults to today's date.
     """
     _require_api_key_if_configured(request)
 
     if source not in ("sample", "live"):
         raise HTTPException(status_code=400, detail="source must be 'sample' or 'live'")
+
+    # Validate date format
+    _validate_date(date)
 
     # Build context using single event context builder
     context = build_single_event_context(
@@ -289,7 +341,7 @@ async def preview_single_event_html(
     request: Request,
     event_id: str,
     source: Literal["sample", "live"] = Query("sample", description="Data source: sample or live"),
-    date: Optional[str] = Query(None, description="ISO date (YYYY-MM-DD) - ignored in MVP unless live path supports it"),
+    date: Optional[str] = Query(None, description="ISO date (YYYY-MM-DD). Defaults to today if omitted."),
     exec_name: Optional[str] = Query(None, description="Override header label"),
     mailbox: Optional[str] = Query(None, description="Mailbox address to determine profile"),
     format: Optional[str] = Query(None, description="Response format: json")
@@ -298,11 +350,17 @@ async def preview_single_event_html(
     Preview a single event by ID as HTML or JSON.
 
     Returns HTML by default, or JSON if format=json or Accept: application/json.
+
+    The date parameter allows previewing events from a specific date (past or future) in YYYY-MM-DD format.
+    If omitted, defaults to today's date.
     """
     _require_api_key_if_configured(request)
 
     if source not in ("sample", "live"):
         raise HTTPException(status_code=400, detail="source must be 'sample' or 'live'")
+
+    # Validate date format
+    _validate_date(date)
 
     # Check if JSON format is requested
     accept_json = request.headers.get("accept", "").startswith("application/json")

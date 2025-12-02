@@ -6,25 +6,51 @@ class NewsProvider(ABC):
     """Abstract base class for news providers."""
 
     @abstractmethod
-    def search(self, company: str) -> List[Dict[str, str]]:
+    def search(self, query: str) -> List[Dict[str, str]]:
         """
-        Search for news articles related to a company.
+        Search for news articles using a query string.
 
         Args:
-            company: Company name to search for
+            query: Search query (can be company name, person name, or advanced query with site: prefix)
 
         Returns:
             List of news items with 'title' and 'url' keys
         """
         pass
 
+    def search_news(self, query: str, max_items: int = 5) -> List[Dict[str, str]]:
+        """
+        Search for news articles (alias for search with max_items limit).
+
+        Args:
+            query: Search query string
+            max_items: Maximum number of items to return
+
+        Returns:
+            List of news items with 'title' and 'url' keys (limited to max_items)
+        """
+        results = self.search(query)
+        return results[:max_items] if results else []
+
 
 class StubNewsProvider(NewsProvider):
     """Deterministic stub news provider for testing and when news is disabled."""
 
-    def search(self, company: str) -> List[Dict[str, str]]:
-        """Generate deterministic news items based on company name."""
-        company_lower = company.lower()
+    def search(self, query: str) -> List[Dict[str, str]]:
+        """Generate deterministic news items based on query (company name or person search)."""
+        # Extract company/person name from query
+        query_clean = query.lower()
+        # Remove quotes and site: prefixes
+        query_clean = query_clean.replace('"', '').replace("'", '')
+        if 'site:' in query_clean:
+            # For site: queries, extract the name part
+            parts = query_clean.split('site:')
+            if len(parts) > 1:
+                query_clean = parts[0].strip()
+            else:
+                query_clean = query_clean.replace('site:', '').strip()
+
+        company_lower = query_clean
 
         # Company-specific news
         if "acme" in company_lower:

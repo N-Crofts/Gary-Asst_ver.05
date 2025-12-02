@@ -8,7 +8,6 @@ from typing import List, Dict, Any
 from app.enrichment.models import MeetingWithEnrichment, Company, NewsItem
 from app.llm.service import select_llm_client
 from app.enrichment.news_provider import StubNewsProvider
-from app.enrichment.news_bing import create_bing_news_provider
 from app.utils.cache import news_cache
 from app.people.normalizer import build_person_hint, is_internal_attendee
 from app.people.resolver import create_people_resolver, PeopleResolver
@@ -111,13 +110,21 @@ def _select_news_provider():
     if not _news_enabled():
         return StubNewsProvider()
 
-    provider = os.getenv("NEWS_PROVIDER", "bing").lower()
+    provider = os.getenv("NEWS_PROVIDER", "newsapi").lower()
 
     if provider == "bing":
         try:
+            from app.enrichment.news_bing import create_bing_news_provider
             return create_bing_news_provider()
         except Exception as e:
             logger.warning(f"Failed to create Bing news provider: {e}")
+            return StubNewsProvider()
+    elif provider == "newsapi":
+        try:
+            from app.enrichment.news_newsapi import create_newsapi_provider
+            return create_newsapi_provider()
+        except Exception as e:
+            logger.warning(f"Failed to create NewsAPI provider: {e}")
             return StubNewsProvider()
     else:
         logger.warning(f"Unknown news provider: {provider}, using stub")
@@ -129,12 +136,14 @@ def _fetch_news_for_company(company_name: str) -> List[Dict[str, str]]:
     if not company_name or not company_name.strip():
         return []
 
-    # Create cache key
-    cache_key = f"news:{company_name.lower().strip()}"
+    # Create cache key with provider name for proper cache isolation
+    provider_name = os.getenv("NEWS_PROVIDER", "newsapi").lower()
+    cache_key = f"news:{provider_name}:{company_name.lower().strip()}"
 
     # Check cache first
     cached_news = news_cache.get(cache_key)
     if cached_news is not None:
+        logger.debug(f"Cache hit for company: {company_name}")
         return cached_news
 
     # Fetch from provider
@@ -142,18 +151,21 @@ def _fetch_news_for_company(company_name: str) -> List[Dict[str, str]]:
         provider = _select_news_provider()
         news_items = provider.search(company_name)
 
-        # Limit to max items
+        # Limit to max items (2-5 range as per requirements)
         max_items = _news_max_items()
+        # Ensure max_items is between 2 and 5
+        max_items = max(2, min(5, max_items))
         if len(news_items) > max_items:
             news_items = news_items[:max_items]
 
         # Cache the result
         cache_ttl_seconds = _news_cache_ttl_min() * 60
         news_cache.set(cache_key, news_items, cache_ttl_seconds)
+        logger.info(f"Fetched {len(news_items)} news items for {company_name}")
 
         return news_items
     except Exception as e:
-        logger.warning(f"Failed to fetch news for {company_name}: {e}")
+        logger.warning(f"Failed to fetch news for {company_name}: {e}", exc_info=True)
         return []
 
 
@@ -200,19 +212,26 @@ def enrich_meetings(meetings: List[Dict[str, Any]], now: float | None = None, ti
         if _news_enabled():
             # Extract company name for news search
             company_name = None
+            # First try company model from fixture
             if company_model and company_model.name:
                 company_name = company_model.name
-            else:
-                # Fallback to attendee company or subject parsing
+            # Then try company from meeting dict
+            elif m.get("company"):
+                comp = m.get("company")
+                if isinstance(comp, dict) and comp.get("name"):
+                    company_name = comp.get("name")
+            # Fallback to attendee company
+            if not company_name:
                 for a in m.get("attendees", []) or []:
                     if a.get("company"):
                         company_name = a.get("company")
                         break
-                if not company_name and "×" in m.get("subject", ""):
-                    # Parse from subject: "RPCK × Company Name — Meeting"
-                    parts = m.get("subject", "").split("×")
-                    if len(parts) > 1:
-                        company_name = parts[1].split("—")[0].strip()
+            # Last resort: parse from subject
+            if not company_name and "×" in m.get("subject", ""):
+                # Parse from subject: "RPCK × Company Name — Meeting"
+                parts = m.get("subject", "").split("×")
+                if len(parts) > 1:
+                    company_name = parts[1].split("—")[0].strip()
 
             # Fetch news from provider
             news_items = _fetch_news_for_company(company_name) if company_name else []
