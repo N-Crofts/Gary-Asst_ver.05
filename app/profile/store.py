@@ -85,8 +85,8 @@ def _build_profile_from_data(profile_data: Dict[str, Any], profile_id: str) -> E
     """
     # Ensure required fields exist
     profile_data.setdefault("id", profile_id)
-    profile_data.setdefault("exec_name", "RPCK Biz Dev")
-    profile_data.setdefault("default_recipients", ["bizdev@rpck.com"])
+    profile_data.setdefault("exec_name", "Sorum Crofts")
+    profile_data.setdefault("default_recipients", ["sorum.crofts@rpck.com", "bizdev@rpck.com"])
     profile_data.setdefault("sections_order", ["company", "news", "talking_points", "smart_questions"])
     profile_data.setdefault("max_items", {
         "news": 5,
@@ -102,8 +102,8 @@ def _get_default_profile(profile_id: str = "default") -> ExecProfile:
     """Return a default profile when no data is available."""
     return ExecProfile(
         id=profile_id,
-        exec_name="RPCK Biz Dev",
-        default_recipients=["bizdev@rpck.com"],
+        exec_name="Sorum Crofts",
+        default_recipients=["sorum.crofts@rpck.com", "bizdev@rpck.com"],
         sections_order=["company", "news", "talking_points", "smart_questions"],
         max_items={
             "news": 5,

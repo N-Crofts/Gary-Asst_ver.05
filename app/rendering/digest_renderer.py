@@ -81,7 +81,7 @@ def build_digest_context(
         "meetings": meetings,
         "date_human": _today_et_str(_get_timezone()),
         "current_year": datetime.now().strftime("%Y"),
-        "exec_name": exec_name or "RPCK Biz Dev",
+        "exec_name": exec_name or "Sorum Crofts",
         "source": actual_source,
     }
 

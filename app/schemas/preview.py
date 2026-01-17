@@ -33,5 +33,5 @@ class DigestPreviewModel(BaseModel):
     ok: bool = True
     source: Literal['sample', 'live'] = 'sample'
     date_human: str
-    exec_name: str = 'RPCK Biz Dev'
+    exec_name: str = 'Sorum Crofts'
     meetings: List[MeetingModel]

@@ -49,7 +49,7 @@ def compose_digest_model(
     context = {
         "date_human": date_human,
         "current_year": dt.strftime("%Y"),
-        "exec_name": exec_name or "RPCK Biz Dev",
+        "exec_name": exec_name or "Sorum Crofts",
         "meetings": normalized_meetings,
     }
     return context

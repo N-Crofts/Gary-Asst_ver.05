@@ -17,7 +17,7 @@ def render_plaintext(context: Dict[str, Any]) -> str:
     lines.append("RPCK – Morning Briefing")
     lines.append("=" * 50)
     lines.append("")
-    lines.append(f"Prepared for {context.get('exec_name', 'RPCK Biz Dev')}")
+    lines.append(f"Prepared for {context.get('exec_name', 'Sorum Crofts')}")
     lines.append(f"Date: {context.get('date_human', '')}")
     lines.append("")
 

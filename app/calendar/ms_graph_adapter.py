@@ -1,5 +1,6 @@
 import os
 import time
+import logging
 from datetime import datetime
 from typing import List, Optional
 from zoneinfo import ZoneInfo
@@ -8,6 +9,8 @@ import httpx
 from fastapi import HTTPException
 
 from app.calendar.types import Event, Attendee
+
+logger = logging.getLogger(__name__)
 from app.core.config import load_config
 
 
@@ -29,10 +32,16 @@ class MSGraphAdapter:
         if self._access_token and now < self._token_expires_at - 60:  # Refresh 1min early
             return self._access_token
 
-        token_url = f"https://login.microsoftonline.com/{self.tenant_id}/oauth2/v2.0/token"
+        # Ensure tenant_id is clean (no whitespace, proper format)
+        tenant_id = self.tenant_id.strip()
+        token_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
+
+        logger.info(f"Requesting MS Graph token - tenant_id: {tenant_id}, client_id: {self.client_id[:8]}...{self.client_id[-8:]}")
+        logger.debug(f"Token URL: {token_url}")
+
         data = {
-            "client_id": self.client_id,
-            "client_secret": self.client_secret,
+            "client_id": self.client_id.strip(),
+            "client_secret": self.client_secret.strip(),
             "scope": "https://graph.microsoft.com/.default",
             "grant_type": "client_credentials"
         }
@@ -40,13 +49,43 @@ class MSGraphAdapter:
         try:
             with httpx.Client(timeout=10) as client:
                 response = client.post(token_url, data=data)
+
+                # Log response details for debugging
+                if response.status_code != 200:
+                    logger.error(f"MS Graph token request failed: {response.status_code}")
+                    logger.error(f"Request URL was: {token_url}")
+                    logger.error(f"Tenant ID used: {repr(tenant_id)} (length: {len(tenant_id)})")
+                    logger.error(f"Response text: {response.text[:500]}")
+                    try:
+                        error_data = response.json()
+                        logger.error(f"Error details: {error_data}")
+                        # Extract the actual tenant ID from error if available
+                        if "error_description" in error_data:
+                            logger.error(f"Full error description: {error_data['error_description']}")
+                    except:
+                        pass
+
                 response.raise_for_status()
                 token_data = response.json()
 
                 self._access_token = token_data["access_token"]
                 self._token_expires_at = now + token_data.get("expires_in", 3600)
+                logger.debug("Successfully acquired MS Graph access token")
                 return self._access_token
+        except httpx.HTTPStatusError as exc:
+            error_detail = f"MS Graph auth failed: {exc.response.status_code}"
+            try:
+                error_json = exc.response.json()
+                if "error_description" in error_json:
+                    error_detail += f" - {error_json['error_description']}"
+                elif "error" in error_json:
+                    error_detail += f" - {error_json['error']}"
+            except:
+                error_detail += f" - {exc.response.text[:200]}"
+            logger.error(error_detail, exc_info=True)
+            raise HTTPException(status_code=503, detail=error_detail)
         except Exception as exc:
+            logger.error(f"MS Graph authentication failed: {exc}", exc_info=True)
             raise HTTPException(status_code=503, detail=f"MS Graph auth failed: {exc}")
 
     def _convert_to_et_time(self, graph_datetime: str) -> str:
@@ -174,16 +213,20 @@ class MSGraphAdapter:
                 response = client.get(url, headers=headers, params=params)
 
                 if response.status_code == 401:
+                    logger.error(f"MS Graph authentication failed for {user_email} on {date}")
                     raise HTTPException(status_code=503, detail="MS Graph authentication failed")
                 elif response.status_code == 403:
-                    # Permission denied for this user - skip silently
+                    # Permission denied for this user
+                    logger.warning(f"Permission denied accessing calendar for {user_email} on {date}. Response: {response.text[:200]}")
                     return []
                 elif response.status_code == 404:
-                    # User not found - skip silently
+                    # User not found
+                    logger.warning(f"User not found: {user_email} on {date}")
                     return []
 
                 response.raise_for_status()
                 data = response.json()
+                logger.info(f"Successfully fetched {len(data.get('value', []))} events for {user_email} on {date}")
 
                 events = []
                 for item in data.get("value", []):
@@ -220,7 +263,8 @@ class MSGraphAdapter:
         except HTTPException:
             raise
         except Exception as exc:
-            # For individual user errors, return empty list rather than failing completely
+            # For individual user errors, log and return empty list rather than failing completely
+            logger.warning(f"Error fetching events for {user_email} on {date}: {exc}", exc_info=True)
             return []
 
     def fetch_events(self, date: str, tz: Optional[str] = None, user: Optional[str] = None) -> List[Event]:
@@ -239,38 +283,46 @@ class MSGraphAdapter:
             # Validate date format
             datetime.strptime(date, "%Y-%m-%d")
         except ValueError:
+            logger.warning(f"Invalid date format: {date}")
             return []
 
         all_events = []
 
         # If group-based access is configured, fetch events for all group members
         if self.allowed_mailbox_group:
+            logger.info(f"Fetching events for group '{self.allowed_mailbox_group}' on {date}")
             try:
                 # Get all members of the allowed group
                 group_members = self._get_group_members(self.allowed_mailbox_group)
+                logger.info(f"Found {len(group_members)} members in group '{self.allowed_mailbox_group}'")
 
                 # Fetch events for each group member
                 for member_email in group_members:
                     try:
                         member_events = self._fetch_events_for_user(member_email, date)
                         all_events.extend(member_events)
-                    except Exception:
+                    except Exception as e:
                         # Skip individual user errors, continue with other members
+                        logger.warning(f"Error fetching events for group member {member_email}: {e}")
                         continue
 
             except HTTPException:
                 raise
             except Exception as exc:
+                logger.error(f"Failed to fetch group events: {exc}", exc_info=True)
                 raise HTTPException(status_code=503, detail=f"Failed to fetch group events: {exc}")
 
         # If single user is configured, fetch events for that user
         elif self.user_email:
+            logger.info(f"Fetching events for user '{self.user_email}' on {date}")
             try:
                 user_events = self._fetch_events_for_user(self.user_email, date)
                 all_events.extend(user_events)
+                logger.info(f"Total events fetched: {len(all_events)}")
             except HTTPException:
                 raise
             except Exception as exc:
+                logger.error(f"Failed to fetch user events: {exc}", exc_info=True)
                 raise HTTPException(status_code=503, detail=f"Failed to fetch user events: {exc}")
 
         else:
@@ -303,11 +355,14 @@ class MSGraphAdapter:
 
 def create_ms_graph_adapter() -> MSGraphAdapter:
     """Factory function to create MSGraphAdapter from environment variables."""
-    tenant_id = os.getenv("MS_TENANT_ID")
-    client_id = os.getenv("MS_CLIENT_ID")
-    client_secret = os.getenv("MS_CLIENT_SECRET")
-    user_email = os.getenv("MS_USER_EMAIL")
-    allowed_mailbox_group = os.getenv("ALLOWED_MAILBOX_GROUP")
+    # Support both MS_* and AZURE_* naming conventions
+    tenant_id = (os.getenv("MS_TENANT_ID") or os.getenv("AZURE_TENANT_ID") or "").strip()
+    client_id = (os.getenv("MS_CLIENT_ID") or os.getenv("AZURE_CLIENT_ID") or "").strip()
+    client_secret = (os.getenv("MS_CLIENT_SECRET") or os.getenv("AZURE_CLIENT_SECRET") or "").strip()
+    user_email = (os.getenv("MS_USER_EMAIL") or "").strip() or None
+    allowed_mailbox_group = (os.getenv("ALLOWED_MAILBOX_GROUP") or "").strip() or None
+
+    logger.debug(f"Creating MS Graph adapter - tenant_id: {tenant_id[:8]}...{tenant_id[-8:] if len(tenant_id) > 16 else tenant_id}, client_id: {client_id[:8]}...{client_id[-8:] if len(client_id) > 16 else client_id}")
 
     if not all([tenant_id, client_id, client_secret]):
         raise HTTPException(

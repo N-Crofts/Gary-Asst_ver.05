@@ -141,8 +141,11 @@ def build_digest_context_with_provider(
                 # No events for this date - meetings will be empty
                 meetings = []
                 actual_source = "live"
-        except Exception:
-            # Provider error - meetings will be empty
+        except Exception as e:
+            # Provider error - log and return empty meetings
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to fetch calendar events for {requested_date}: {e}", exc_info=True)
             meetings = []
             actual_source = "live"
     else:

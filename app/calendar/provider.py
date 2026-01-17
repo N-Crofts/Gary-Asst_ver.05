@@ -50,14 +50,22 @@ def fetch_events_range(provider: CalendarProvider, start_date: str, end_date: st
 
 def select_calendar_provider() -> CalendarProvider:
     """Factory function to select calendar provider based on CALENDAR_PROVIDER env var."""
+    import logging
+    logger = logging.getLogger(__name__)
+
     provider = os.getenv("CALENDAR_PROVIDER", "mock").lower()
+    logger.info(f"Selecting calendar provider: {provider}")
 
     if provider == "mock":
         from app.calendar.mock_provider import MockCalendarProvider
+        logger.info("Using MockCalendarProvider")
         return MockCalendarProvider()
     elif provider == "ms_graph":
         from app.calendar.ms_graph_adapter import create_ms_graph_adapter
-        return create_ms_graph_adapter()
+        logger.info("Creating MS Graph adapter")
+        adapter = create_ms_graph_adapter()
+        logger.info(f"MS Graph adapter created - user_email: {adapter.user_email}, group: {adapter.allowed_mailbox_group}")
+        return adapter
     else:
         raise ValueError(f"Unsupported CALENDAR_PROVIDER: {provider}")
 
