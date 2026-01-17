@@ -127,20 +127,34 @@ def build_digest_context_with_provider(
     # Load executive profile (use mailbox if provided)
     profile = get_profile(mailbox=mailbox)
 
+    # Determine which user's calendar to fetch
+    # Use explicit mailbox parameter, or fall back to profile's mailbox field
+    user_mailbox = mailbox
+    if not user_mailbox and hasattr(profile, 'mailbox') and profile.mailbox:
+        user_mailbox = profile.mailbox
+
     actual_source = "live"
     meetings: list[dict] = []
 
     if source == "live":
         try:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Fetching live calendar events for date={requested_date}, user={user_mailbox}")
             provider = select_calendar_provider()
-            events = provider.fetch_events(requested_date)
+            logger.info(f"Using calendar provider: {type(provider).__name__}")
+            # Pass mailbox/user to filter events for specific user
+            events = provider.fetch_events(requested_date, user=user_mailbox)
+            logger.info(f"Received {len(events)} events from provider for {requested_date}")
             if events:
                 meetings = _map_events_to_meetings([e.model_dump() for e in events])
                 actual_source = "live"
+                logger.info(f"Mapped to {len(meetings)} meetings")
             else:
                 # No events for this date - meetings will be empty
                 meetings = []
                 actual_source = "live"
+                logger.info(f"No events found for {requested_date}")
         except Exception as e:
             # Provider error - log and return empty meetings
             import logging
@@ -216,6 +230,12 @@ def build_single_event_context(
     # Load executive profile (use mailbox if provided)
     profile = get_profile(mailbox=mailbox)
 
+    # Determine which user's calendar to fetch
+    # Use explicit mailbox parameter, or fall back to profile's mailbox field
+    user_mailbox = mailbox
+    if not user_mailbox and hasattr(profile, 'mailbox') and profile.mailbox:
+        user_mailbox = profile.mailbox
+
     actual_source = "sample"
     meeting: Optional[dict] = None
 
@@ -224,7 +244,8 @@ def build_single_event_context(
             provider = select_calendar_provider()
             # For now, we'll fetch all events and find by ID
             # In a real implementation, the provider would have a fetch_event_by_id method
-            events = provider.fetch_events(requested_date)
+            # Pass mailbox/user to filter events for specific user
+            events = provider.fetch_events(requested_date, user=user_mailbox)
             if events:
                 # Find event by ID (assuming event has an 'id' field)
                 for event in events:

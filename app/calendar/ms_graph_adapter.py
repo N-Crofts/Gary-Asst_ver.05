@@ -199,7 +199,7 @@ class MSGraphAdapter:
         params = {
             "startDateTime": start_utc.isoformat(),
             "endDateTime": end_utc.isoformat(),
-            "$select": "subject,start,end,location,attendees,bodyPreview",
+            "$select": "subject,start,end,location,attendees,bodyPreview,organizer",
             "$orderby": "start/dateTime"
         }
 
@@ -226,20 +226,69 @@ class MSGraphAdapter:
 
                 response.raise_for_status()
                 data = response.json()
-                logger.info(f"Successfully fetched {len(data.get('value', []))} events for {user_email} on {date}")
+                raw_events_count = len(data.get('value', []))
+                logger.info(f"Successfully fetched {raw_events_count} raw events from Graph API for {user_email} on {date}")
 
                 events = []
+                # Parse the requested date for strict filtering
+                requested_date_obj = datetime.strptime(date, "%Y-%m-%d").date()
+                logger.info(f"Filtering events to only those starting on {requested_date_obj} with {user_email} as attendee/organizer")
+
+                # Normalize user email for comparison (lowercase)
+                user_email_lower = user_email.lower()
+
                 for item in data.get("value", []):
                     # Extract start/end times
                     start_time = item.get("start", {}).get("dateTime", "")
                     end_time = item.get("end", {}).get("dateTime", "")
 
-                    # Convert to ET time strings
-                    start_et = self._convert_to_et_time(start_time)
-                    end_et = self._convert_to_et_time(end_time)
+                    # Skip if no start time
+                    if not start_time:
+                        continue
+
+                    # Parse the start time to get the actual date
+                    try:
+                        start_dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+                        # Convert to ET to get the date
+                        start_et_dt = start_dt.astimezone(et_tz)
+                        event_date = start_et_dt.date()
+
+                        # Strict date filtering: only include events that start on the requested date
+                        if event_date != requested_date_obj:
+                            logger.info(f"Skipping event '{item.get('subject', '')}' - starts on {event_date}, requested {requested_date_obj}")
+                            continue
+                    except (ValueError, AttributeError) as e:
+                        logger.warning(f"Could not parse start time '{start_time}' for event '{item.get('subject', '')}': {e}")
+                        continue
 
                     # Normalize attendees
                     attendees = self._normalize_attendees(item.get("attendees", []))
+
+                    # Filter: only include events where the user is an attendee
+                    user_is_attendee = False
+                    attendee_emails = []
+                    for attendee in attendees:
+                        attendee_email = (attendee.email or "").lower()
+                        attendee_emails.append(attendee_email)
+                        if attendee_email == user_email_lower:
+                            user_is_attendee = True
+                            logger.debug(f"User {user_email} found in attendees for event '{item.get('subject', '')}'")
+                            break
+
+                    # Also check if the user is the organizer (organizer email might not be in attendees)
+                    organizer = item.get("organizer", {}).get("emailAddress", {})
+                    organizer_email = (organizer.get("address", "") or "").lower()
+                    if organizer_email == user_email_lower:
+                        user_is_attendee = True
+                        logger.debug(f"User {user_email} is organizer for event '{item.get('subject', '')}'")
+
+                    if not user_is_attendee:
+                        logger.info(f"Skipping event '{item.get('subject', '')}' - user {user_email} is not an attendee/organizer. Attendees: {attendee_emails}, Organizer: {organizer_email}")
+                        continue
+
+                    # Convert to ET time strings
+                    start_et = self._convert_to_et_time(start_time)
+                    end_et = self._convert_to_et_time(end_time)
 
                     # Extract location
                     location = item.get("location", {}).get("displayName")
@@ -258,6 +307,7 @@ class MSGraphAdapter:
                         notes=notes
                     ))
 
+                logger.info(f"After filtering: {len(events)} events for {user_email} on {date} (started on date and user is attendee)")
                 return events
 
         except HTTPException:
@@ -267,14 +317,15 @@ class MSGraphAdapter:
             logger.warning(f"Error fetching events for {user_email} on {date}: {exc}", exc_info=True)
             return []
 
-    def fetch_events(self, date: str, tz: Optional[str] = None, user: Optional[str] = None) -> List[Event]:
+    def fetch_events(self, date: str, user: Optional[str] = None) -> List[Event]:
         """
         Fetch calendar events for the given date from Microsoft Graph.
 
         Args:
             date: ISO date string (YYYY-MM-DD)
-            tz: Timezone (ignored, always uses ET)
-            user: User email (ignored, uses configured user_email or group members)
+            user: Optional user email to filter events for a specific user.
+                  If provided, only fetches events for that user.
+                  If None, uses configured user_email or fetches for all group members.
 
         Returns:
             List of normalized Event objects
@@ -287,6 +338,20 @@ class MSGraphAdapter:
             return []
 
         all_events = []
+
+        # If a specific user is requested, fetch events only for that user
+        if user:
+            logger.info(f"Fetching events for requested user '{user}' on {date}")
+            try:
+                user_events = self._fetch_events_for_user(user, date)
+                all_events.extend(user_events)
+                logger.info(f"Total events fetched for {user}: {len(all_events)}")
+            except HTTPException:
+                raise
+            except Exception as exc:
+                logger.error(f"Failed to fetch events for user {user}: {exc}", exc_info=True)
+                raise HTTPException(status_code=503, detail=f"Failed to fetch events for user {user}: {exc}")
+            return all_events
 
         # If group-based access is configured, fetch events for all group members
         if self.allowed_mailbox_group:

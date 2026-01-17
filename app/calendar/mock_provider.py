@@ -1,7 +1,7 @@
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from app.calendar.types import Event, Attendee
 
@@ -33,7 +33,7 @@ class MockCalendarProvider:
     def __init__(self, data_path: Path | None = None) -> None:
         self._path = data_path or DATA_PATH
 
-    def fetch_events(self, date: str) -> List[Event]:
+    def fetch_events(self, date: str, user: Optional[str] = None) -> List[Event]:
         day = date
         try:
             datetime.strptime(day, "%Y-%m-%d")

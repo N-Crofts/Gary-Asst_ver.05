@@ -1,21 +1,25 @@
 import os
 from datetime import datetime, timedelta
-from typing import List, Protocol
+from typing import List, Optional, Protocol
 
 from app.calendar.types import Event
 
 
 class CalendarProvider(Protocol):
-    def fetch_events(self, date: str) -> List[Event]:
+    def fetch_events(self, date: str, user: Optional[str] = None) -> List[Event]:
         """
         Fetch normalized calendar events for the given ISO date (YYYY-MM-DD).
+
+        Args:
+            date: ISO date string (YYYY-MM-DD)
+            user: Optional user email to filter events for a specific user
 
         All times must be ISO 8601 strings in ET.
         """
         ...
 
 
-def fetch_events_range(provider: CalendarProvider, start_date: str, end_date: str) -> List[Event]:
+def fetch_events_range(provider: CalendarProvider, start_date: str, end_date: str, user: Optional[str] = None) -> List[Event]:
     """
     Fetch events across a date range (inclusive).
 
@@ -23,6 +27,7 @@ def fetch_events_range(provider: CalendarProvider, start_date: str, end_date: st
         provider: Calendar provider instance
         start_date: Start date in YYYY-MM-DD format (inclusive)
         end_date: End date in YYYY-MM-DD format (inclusive)
+        user: Optional user email to filter events for a specific user
 
     Returns:
         List of events across the date range
@@ -41,7 +46,7 @@ def fetch_events_range(provider: CalendarProvider, start_date: str, end_date: st
 
     while current <= end:
         day_str = current.strftime("%Y-%m-%d")
-        day_events = provider.fetch_events(day_str)
+        day_events = provider.fetch_events(day_str, user=user)
         all_events.extend(day_events)
         current += timedelta(days=1)
 
@@ -54,11 +59,11 @@ def select_calendar_provider() -> CalendarProvider:
     logger = logging.getLogger(__name__)
 
     provider = os.getenv("CALENDAR_PROVIDER", "mock").lower()
-    logger.info(f"Selecting calendar provider: {provider}")
+    logger.info(f"Selecting calendar provider: {provider} (from CALENDAR_PROVIDER env var)")
 
     if provider == "mock":
         from app.calendar.mock_provider import MockCalendarProvider
-        logger.info("Using MockCalendarProvider")
+        logger.warning("Using MockCalendarProvider - calendar filtering will NOT work! Set CALENDAR_PROVIDER=ms_graph for live data.")
         return MockCalendarProvider()
     elif provider == "ms_graph":
         from app.calendar.ms_graph_adapter import create_ms_graph_adapter

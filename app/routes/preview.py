@@ -116,7 +116,20 @@ async def preview_digest_html(
     The date parameter allows previewing any single date (past or future) in YYYY-MM-DD format.
     If omitted, defaults to today's date.
     """
-    _require_api_key_if_configured(request)
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"=== PREVIEW REQUEST START ===")
+    logger.info(f"Preview request received: source={source}, date={date}, mailbox={mailbox}")
+    logger.info(f"Request URL: {request.url}")
+    logger.info(f"Request path: {request.url.path}")
+    logger.info(f"Query params: {dict(request.query_params)}")
+
+    try:
+        _require_api_key_if_configured(request)
+        logger.info("API key check passed")
+    except Exception as e:
+        logger.error(f"API key check failed: {e}")
+        raise
 
     if source not in ("sample", "live"):
         raise HTTPException(status_code=400, detail="source must be 'sample' or 'live'")
