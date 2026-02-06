@@ -1,8 +1,61 @@
 # Gary-Asst (Research Gary MVP)
 
-Research Gary scans the daily calendar, builds quick dossiers for external meetings, and emails a single morning briefing. This README reflects **the repo state at its start** (single `app/main.py` and a smoke test) and shows how to **upgrade to the FastAPI skeleton** we planned.
+Research Gary scans the daily calendar, builds quick dossiers for external meetings, and emails a single morning briefing.
 
-References: Product Spec and Tech Plan.
+## 📚 Documentation
+
+- **[Architecture Guide](ARCHITECTURE.md)** - System architecture, design decisions, and component overview
+- **[API Design](docs/API_DESIGN.md)** - API endpoints, patterns, and conventions
+- **[Code Examples](docs/EXAMPLES.md)** - Sanitized examples of key modules and patterns
+- **[Integration Examples](docs/INTEGRATION_EXAMPLE.md)** - Mocked integration layer examples
+- **[Quick Reference](docs/QUICK_REFERENCE.md)** - Quick reference guide for common tasks
+
+## 🏗️ System Architecture
+
+### High-Level Flow
+
+```
+┌─────────┐
+│  User   │
+└────┬────┘
+     │
+     ▼
+┌─────────────────┐
+│  Web Interface  │  Preview & Management UI
+└────┬────────────┘
+     │ HTTP Requests
+     ▼
+┌─────────────────┐
+│  Backend API    │  FastAPI Application
+│  (FastAPI)      │  • Route Handling
+└────┬────────────┘  • Request Validation
+     │                • Context Building
+     ▼
+┌─────────────────┐
+│ Microsoft Graph │  Calendar & Mail API
+│  (OAuth2)       │  • Fetch Events
+└────┬────────────┘  • Filter by Date/User
+     │
+     ▼
+┌─────────────────┐
+│Processing       │  Data Enrichment Pipeline
+│Pipeline         │  • Company Data
+└────┬────────────┘  • News Articles
+     │                • LLM Generation
+     │                • People Resolution
+     ▼
+┌─────────────────┐
+│ Email Delivery  │  SendGrid/SMTP
+│  (SendGrid)     │  • HTML & Plaintext
+└────┬────────────┘  • Recipient Management
+     │
+     ▼
+┌─────────┐
+│  User   │  Receives Digest Email
+└─────────┘
+```
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed architecture documentation, component descriptions, and design decisions.
 
 ---
 
@@ -193,31 +246,84 @@ pre-commit install
 
 ---
 
-## 📂 Target project structure
+## 📂 Project Structure
 
 ```
 gary-asst/
   app/
     __init__.py
-    main.py
-    routes/
-      digest.py
-    integrations/
-      graph_calendar.py
-      graph_mail.py
-      bing.py
-    core/
-      models.py
-      llm.py
-      renderer.py
-      flags.py
-      log.py
-    templates/
-      digest.html
-  tests/
-    test_smoke.py
-    test_endpoints.py
+    main.py                    # FastAPI application entrypoint
+    routes/                    # API route handlers
+      digest.py               # Digest sending endpoints
+      preview.py              # Preview endpoints
+      search.py               # Search endpoints
+      health.py               # Health check endpoints
+      scheduler.py            # Scheduler management
+      actions.py              # External action handlers
+      debug.py                # Debug endpoints
+    calendar/                 # Calendar provider abstraction
+      provider.py             # Provider protocol and factory
+      mock_provider.py        # Mock implementation
+      ms_graph_adapter.py     # Microsoft Graph implementation
+      types.py                # Calendar data models
+    enrichment/               # Data enrichment services
+      service.py              # Main enrichment orchestrator
+      news_provider.py        # News provider abstraction
+      news_newsapi.py         # NewsAPI implementation
+      news_bing.py            # Bing News implementation
+    llm/                      # LLM integration
+      service.py              # LLM client abstraction
+    rendering/                # Digest rendering
+      digest_renderer.py      # HTML renderer
+      context_builder.py      # Context assembly
+    services/                 # External service integrations
+      emailer.py              # Email provider abstraction
+    profile/                  # Executive profile management
+      store.py                # Profile storage
+      models.py               # Profile data models
+    core/                     # Core configuration
+      config.py               # Application configuration
+    storage/                  # Caching and storage
+      cache.py                # Preview cache implementation
+    data/                     # Sample data files
+      sample_calendar.json    # Mock calendar data
+      exec_profiles.json      # Executive profiles
+    templates/                # HTML templates
+      digest.html             # Digest email template
+  tests/                      # Test suite
+    test_*.py                 # Unit and integration tests
+  docs/                       # Documentation
+    API_DESIGN.md            # API design guide
+    EXAMPLES.md              # Code examples
+    INTEGRATION_EXAMPLE.md   # Integration examples
+  ARCHITECTURE.md            # System architecture
+  README.md                  # This file
 ```
+
+## 🎨 Design Principles
+
+### 1. Pluggable Architecture
+- **Calendar Providers**: Abstract calendar access behind a protocol
+- **News Providers**: Swappable news API implementations
+- **Email Providers**: Multiple email delivery options
+- **LLM Providers**: Pluggable LLM service integration
+
+### 2. Graceful Degradation
+- Fallback to sample data when live data unavailable
+- Feature flags for optional services (news, LLM)
+- Stub implementations for testing
+
+### 3. Configuration-Driven
+- Environment variables for all settings
+- Profile-based customization
+- Feature flags for optional features
+
+### 4. Testability
+- Mock providers for all external services
+- Sample data for consistent testing
+- Clear separation of concerns
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed design decisions and rationale.
 
 ---
 
