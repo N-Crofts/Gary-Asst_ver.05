@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import Dict, Any, Literal, Optional, List
 
+from fastapi import HTTPException
+
 from app.calendar.provider import select_calendar_provider
 from app.data.sample_digest import SAMPLE_MEETINGS
 from app.rendering.digest_renderer import _today_et_str, _format_date_et_str, _get_timezone
@@ -155,13 +157,15 @@ def build_digest_context_with_provider(
                 meetings = []
                 actual_source = "live"
                 logger.info(f"No events found for {requested_date}")
+        except HTTPException:
+            # Re-raise HTTPExceptions (e.g., 403, 401) so they propagate with correct status codes
+            raise
         except Exception as e:
             # Provider error - log and return empty meetings
             import logging
             logger = logging.getLogger(__name__)
-            logger.warning(f"Failed to fetch calendar events for {requested_date}: {e}", exc_info=True)
-            meetings = []
-            actual_source = "live"
+            logger.exception("Unexpected error building preview context")
+            raise HTTPException(status_code=500, detail="Unexpected error generating preview")
     else:
         # Sample mode - use sample data
         meetings = SAMPLE_MEETINGS
@@ -256,9 +260,15 @@ def build_single_event_context(
                             meeting = meetings[0]
                             actual_source = "live"
                         break
-        except Exception:
-            # Fallback to sample on any provider error
-            pass
+        except HTTPException:
+            # Re-raise HTTPExceptions (e.g., 403, 401) so they propagate with correct status codes
+            raise
+        except Exception as e:
+            # Unexpected error - log and raise HTTPException
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.exception("Unexpected error building single event preview context")
+            raise HTTPException(status_code=500, detail="Unexpected error generating preview")
 
     # If no meeting found in live data, try sample data
     if not meeting:

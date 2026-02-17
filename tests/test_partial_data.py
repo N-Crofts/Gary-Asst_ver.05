@@ -150,7 +150,7 @@ class TestPartialDataMode:
             assert len(meeting["smart_questions"]) == 0
 
     def test_provider_error_graceful_handling(self):
-        """Test graceful handling when calendar provider fails."""
+        """Test graceful handling when calendar provider fails with non-HTTPException."""
         client = TestClient(app)
 
         with patch('app.rendering.context_builder.select_calendar_provider') as mock_provider:
@@ -158,11 +158,10 @@ class TestPartialDataMode:
 
             response = client.get("/digest/preview?source=live")
 
-            assert response.status_code == 200
-            html_content = response.text
-
-            # Should show empty state when provider fails
-            assert "No meetings for this date." in html_content
+            # Non-HTTPException errors should raise HTTPException(status_code=500)
+            assert response.status_code == 500
+            data = response.json()
+            assert "Unexpected error generating preview" in data["detail"]
 
     def test_context_builder_no_events(self):
         """Test context builder directly with no events."""

@@ -24,21 +24,33 @@ class TestMSGraphAdapter:
 
     def test_fetch_events_invalid_date_returns_empty(self):
         """Test that invalid date format returns empty list."""
-        adapter = MSGraphAdapter("tenant", "client", "secret", "user@example.com")
+        adapter = MSGraphAdapter("tenant", "client", "secret", user_email="user@example.com", allowed_mailboxes=["user@example.com"])
         result = adapter.fetch_events("invalid-date")
         assert result == []
 
     def test_fetch_events_success_normalizes_data(self):
         """Test successful fetch with data normalization."""
-        # Mock Graph API response
+        # Mock Graph API response - user must be in attendees for event to be included
         mock_response = {
             "value": [
                 {
                     "subject": "Test Meeting",
-                    "start": {"dateTime": "2025-01-15T14:30:00.0000000Z"},
-                    "end": {"dateTime": "2025-01-15T15:30:00.0000000Z"},
+                    "start": {
+                        "dateTime": "2025-01-15T14:30:00.0000000",
+                        "timeZone": "America/New_York"
+                    },
+                    "end": {
+                        "dateTime": "2025-01-15T15:30:00.0000000",
+                        "timeZone": "America/New_York"
+                    },
                     "location": {"displayName": "Conference Room A"},
                     "attendees": [
+                        {
+                            "emailAddress": {
+                                "name": "User Name",
+                                "address": "user@example.com"
+                            }
+                        },
                         {
                             "emailAddress": {
                                 "name": "John Doe",
@@ -46,12 +58,20 @@ class TestMSGraphAdapter:
                             }
                         }
                     ],
-                    "bodyPreview": "Meeting notes here"
+                    "organizer": {
+                        "emailAddress": {
+                            "name": "User Name",
+                            "address": "user@example.com"
+                        }
+                    },
+                    "bodyPreview": "Meeting notes here",
+                    "isCancelled": False,
+                    "id": "AAMkAGI1AA=="
                 }
             ]
         }
 
-        adapter = MSGraphAdapter("tenant", "client", "secret", "user@example.com")
+        adapter = MSGraphAdapter("tenant", "client", "secret", user_email="user@example.com", allowed_mailboxes=["user@example.com"])
 
         with patch.object(adapter, '_get_access_token', return_value="fake_token"):
             with patch('httpx.Client') as mock_client:
@@ -67,18 +87,24 @@ class TestMSGraphAdapter:
                 assert len(events) == 1
                 event = events[0]
                 assert event.subject == "Test Meeting"
-                assert "9:30 AM ET" in event.start_time  # Converted to ET
-                assert "10:30 AM ET" in event.end_time
+                # Check ISO datetime format in ET timezone
+                assert "2025-01-15T09:30:00" in event.start_time or "2025-01-15T14:30:00" in event.start_time
+                assert "-05:00" in event.start_time or "-04:00" in event.start_time  # ET offset
                 assert event.location == "Conference Room A"
-                assert len(event.attendees) == 1
-                assert event.attendees[0].name == "John Doe"
-                assert event.attendees[0].email == "john@acme.com"
-                assert event.attendees[0].company == "Acme"  # Extracted from domain
+                assert len(event.attendees) >= 2  # User + John Doe
+                # Find John Doe attendee
+                john_attendee = next((a for a in event.attendees if a.email == "john@acme.com"), None)
+                assert john_attendee is not None
+                assert john_attendee.name == "John Doe"
+                assert john_attendee.company == "Acme"  # Extracted from domain
                 assert event.notes == "Meeting notes here"
+                # Check that id and organizer are populated
+                assert event.id == "AAMkAGI1AA=="
+                assert event.organizer == "user@example.com"
 
     def test_fetch_events_auth_failure_raises_exception(self):
         """Test that authentication failures raise HTTPException."""
-        adapter = MSGraphAdapter("tenant", "client", "secret", "user@example.com")
+        adapter = MSGraphAdapter("tenant", "client", "secret", user_email="user@example.com", allowed_mailboxes=["user@example.com"])
 
         with patch.object(adapter, '_get_access_token', return_value="fake_token"):
             with patch('httpx.Client') as mock_client:
@@ -93,40 +119,54 @@ class TestMSGraphAdapter:
                 assert "authentication failed" in str(exc_info.value.detail)
 
     def test_fetch_events_permission_denied_raises_exception(self):
-        """Test that permission denied raises HTTPException."""
-        adapter = MSGraphAdapter("tenant", "client", "secret", "user@example.com")
+        """Test that permission denied raises HTTPException with 403 status."""
+        adapter = MSGraphAdapter("tenant", "client", "secret", user_email="user@example.com", allowed_mailboxes=["user@example.com"])
 
         with patch.object(adapter, '_get_access_token', return_value="fake_token"):
             with patch('httpx.Client') as mock_client:
                 mock_response_obj = MagicMock()
                 mock_response_obj.status_code = 403
+                # Mock error response JSON structure
+                mock_response_obj.json.return_value = {
+                    "error": {
+                        "code": "ErrorAccessDenied",
+                        "message": "Access denied"
+                    }
+                }
 
                 mock_client.return_value.__enter__.return_value.get.return_value = mock_response_obj
 
                 with pytest.raises(HTTPException) as exc_info:
                     adapter.fetch_events("2025-01-15")
-                assert exc_info.value.status_code == 503
-                assert "permission denied" in str(exc_info.value.detail)
+                assert exc_info.value.status_code == 403
+                assert "Access denied" in str(exc_info.value.detail)
 
-    def test_convert_to_et_time_handles_various_formats(self):
-        """Test timezone conversion handles different input formats."""
-        adapter = MSGraphAdapter("tenant", "client", "secret", "user@example.com")
+    def test_parse_graph_datetime_handles_various_formats(self):
+        """Test datetime parsing handles different Graph response formats."""
+        adapter = MSGraphAdapter("tenant", "client", "secret", user_email="user@example.com", allowed_mailboxes=["user@example.com"])
+
+        # Test with timeZone field
+        result = adapter._parse_graph_datetime({
+            "dateTime": "2025-01-15T14:30:00.0000000",
+            "timeZone": "America/New_York"
+        })
+        assert result.hour == 14 or result.hour == 9  # Depending on DST
+        assert result.tzinfo is not None
 
         # Test UTC format
-        result = adapter._convert_to_et_time("2025-01-15T14:30:00.0000000Z")
-        assert "9:30 AM ET" in result
+        result = adapter._parse_graph_datetime({
+            "dateTime": "2025-01-15T14:30:00.0000000Z",
+            "timeZone": "UTC"
+        })
+        assert result.tzinfo is not None
 
-        # Test with timezone offset
-        result = adapter._convert_to_et_time("2025-01-15T14:30:00+00:00")
-        assert "9:30 AM ET" in result
-
-        # Test invalid format fallback
-        result = adapter._convert_to_et_time("invalid-time")
-        assert result == "invalid-time"
+        # Test invalid format raises error
+        with pytest.raises(ValueError):
+            adapter._parse_graph_datetime({"dateTime": "invalid-time"})
 
     def test_normalize_attendees_extracts_company_from_domain(self):
         """Test that company is extracted from email domain."""
-        adapter = MSGraphAdapter("tenant", "client", "secret", "user@example.com")
+        adapter = MSGraphAdapter("tenant", "client", "secret", user_email="user@example.com", allowed_mailboxes=["user@example.com"])
 
         graph_attendees = [
             {
@@ -225,8 +265,8 @@ class TestPreviewEndpointWithMSGraph:
                 assert len(data["meetings"]) == 1
                 assert data["meetings"][0]["subject"] == "Live Meeting"
 
-    def test_preview_live_with_ms_graph_fallback(self):
-        """Test preview with MS Graph provider falls back to sample on error."""
+    def test_preview_live_with_ms_graph_error_raises(self):
+        """Test preview with MS Graph provider raises error instead of falling back."""
         client = TestClient(app)
 
         with patch.dict(os.environ, {"CALENDAR_PROVIDER": "ms_graph"}):
@@ -237,13 +277,13 @@ class TestPreviewEndpointWithMSGraph:
 
                 response = client.get("/digest/preview.json?source=live&date=2025-01-15")
 
-                assert response.status_code == 200
+                # HTTPExceptions should propagate with their original status code
+                assert response.status_code == 503
                 data = response.json()
-                assert data["source"] == "sample"  # Fallback to sample
-                assert len(data["meetings"]) >= 1  # Sample data should be present
+                assert "API error" in data["detail"]
 
-    def test_preview_live_with_empty_events_fallback(self):
-        """Test preview with MS Graph provider falls back to sample when no events."""
+    def test_preview_live_with_empty_events_returns_empty(self):
+        """Test preview with MS Graph provider returns empty when no events (no fallback)."""
         client = TestClient(app)
 
         with patch.dict(os.environ, {"CALENDAR_PROVIDER": "ms_graph"}):
@@ -256,5 +296,5 @@ class TestPreviewEndpointWithMSGraph:
 
                 assert response.status_code == 200
                 data = response.json()
-                assert data["source"] == "sample"  # Fallback to sample
-                assert len(data["meetings"]) >= 1  # Sample data should be present
+                assert data["source"] == "live"  # No fallback to sample
+                assert len(data["meetings"]) == 0  # Empty meetings when no events

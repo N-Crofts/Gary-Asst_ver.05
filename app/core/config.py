@@ -22,6 +22,8 @@ class AppConfig(BaseModel):
     slack_channel_id: Optional[str] = None
     # Calendar group access configuration
     allowed_mailbox_group: Optional[str] = None
+    # Mailbox allowlist for calendar access
+    allowed_mailboxes: list[str] = []
 
 
 def load_config() -> AppConfig:
@@ -29,6 +31,9 @@ def load_config() -> AppConfig:
     recipients = [r.strip() for r in recipients_raw.split(",") if r.strip()]
     smtp_port_str = os.getenv("SMTP_PORT")
     smtp_port = int(smtp_port_str) if smtp_port_str and smtp_port_str.isdigit() else None
+    # Parse allowed mailboxes (normalize to lowercase)
+    allowed_mailboxes_raw = os.getenv("ALLOWED_MAILBOXES", "")
+    allowed_mailboxes = [m.strip().lower() for m in allowed_mailboxes_raw.split(",") if m.strip()]
     return AppConfig(
         mail_driver=os.getenv("MAIL_DRIVER", "console").lower(),
         smtp_host=os.getenv("SMTP_HOST"),
@@ -46,6 +51,7 @@ def load_config() -> AppConfig:
         slack_bot_token=os.getenv("SLACK_BOT_TOKEN"),
         slack_channel_id=os.getenv("SLACK_CHANNEL_ID"),
         allowed_mailbox_group=os.getenv("ALLOWED_MAILBOX_GROUP"),
+        allowed_mailboxes=allowed_mailboxes,
     )
 
 

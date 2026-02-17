@@ -357,7 +357,7 @@ class TestPreviewEndpointWithGroupAccess:
                 assert data["meetings"][1]["subject"] == "Group User 2 Meeting"
 
     def test_preview_live_with_group_access_error_handling(self):
-        """Test preview with group-based MS Graph provider handles errors gracefully."""
+        """Test preview with group-based MS Graph provider propagates HTTPExceptions."""
         client = TestClient(app)
 
         with patch.dict(os.environ, {"CALENDAR_PROVIDER": "ms_graph"}):
@@ -368,7 +368,7 @@ class TestPreviewEndpointWithGroupAccess:
 
                 response = client.get("/digest/preview.json?source=live&date=2025-01-15")
 
-                assert response.status_code == 200
+                # HTTPExceptions should propagate with their original status code
+                assert response.status_code == 503
                 data = response.json()
-                assert data["source"] == "live"  # Source remains live even on error
-                assert len(data["meetings"]) == 0  # No meetings when provider fails
+                assert "Group API error" in data["detail"]
