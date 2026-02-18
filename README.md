@@ -181,6 +181,49 @@ If all three succeed, the skeleton app is running end-to-end.
 
 ---
 
+## 🐳 Docker Verification
+
+You can also run Gary-Asst in a Docker container for local testing or deployment:
+
+### Build Container
+
+```bash
+docker build -t gary-asst .
+```
+
+### Run Container
+
+```bash
+docker run -p 8000:8000 --env-file .env gary-asst
+```
+
+**Note:** Ensure your `.env` file exists with required environment variables before running the container.
+
+### Verify Health Endpoint
+
+Once the container is running, test the health endpoint:
+
+```bash
+curl http://localhost:8000/health
+```
+
+Expected response:
+
+```json
+{"status":"ok"}
+```
+
+### Docker Notes
+
+- The container exposes port 8000 by default
+- Environment variables are loaded from `.env` file via `--env-file`
+- The container uses Python 3.11 slim base image
+- Health endpoint is available at `/health` for container orchestration
+
+For production deployment to Fly.io, see [deploy/fly/README.md](deploy/fly/README.md).
+
+---
+
 ## ✅ Sanity Test (Automated with Pytest)
 
 We added `tests/test_endpoints.py` to automatically check both endpoints.

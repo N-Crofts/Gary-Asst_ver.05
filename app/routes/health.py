@@ -64,6 +64,17 @@ def get_last_run() -> Optional[Dict[str, Any]]:
     return _last_run
 
 
+@router.get("/health")
+async def health() -> JSONResponse:
+    """
+    Simple health check endpoint for Fly.io and container orchestration.
+    
+    Returns:
+        JSON response with status "ok"
+    """
+    return JSONResponse(status_code=200, content={"status": "ok"})
+
+
 @router.get("/healthz")
 async def health_check() -> JSONResponse:
     """
