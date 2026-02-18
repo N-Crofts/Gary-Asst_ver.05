@@ -76,6 +76,43 @@ To follow logs in real-time:
 fly logs --follow
 ```
 
+## POST /run-digest
+
+The `POST /run-digest` endpoint runs the digest pipeline and returns a JSON result. It requires the `X-API-Key` header to match your `INTERNAL_API_KEY` secret.
+
+### curl example (live source)
+
+```bash
+curl -X POST "https://your-app-name.fly.dev/run-digest" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_INTERNAL_API_KEY" \
+  -d '{"mailbox": "sorum.crofts@rpck.com", "date": "2025-02-18", "source": "live"}'
+```
+
+### curl example with source=stub (no Graph required)
+
+Use `source=stub` to run the pipeline with hardcoded stub meetings. Useful for testing without Microsoft Graph:
+
+```bash
+curl -X POST "https://your-app-name.fly.dev/run-digest" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_INTERNAL_API_KEY" \
+  -d '{"source": "stub"}'
+```
+
+Optional: include HTML in the response:
+
+```bash
+curl -X POST "https://your-app-name.fly.dev/run-digest?include_html=true" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_INTERNAL_API_KEY" \
+  -d '{"source": "stub"}'
+```
+
+**Note:** If `X-API-Key` is missing or invalid, the API returns **HTTP 403**.
+
+---
+
 ## Verification
 
 ### Check Deployment Status

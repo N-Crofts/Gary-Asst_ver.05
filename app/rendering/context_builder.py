@@ -1,10 +1,12 @@
 from datetime import datetime
 from typing import Dict, Any, Literal, Optional, List
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
 
 from app.calendar.provider import select_calendar_provider
-from app.data.sample_digest import SAMPLE_MEETINGS
+from app.calendar.types import Event, Attendee
+from app.data.sample_digest import SAMPLE_MEETINGS, STUB_MEETINGS_RAW_GRAPH
 from app.rendering.digest_renderer import _today_et_str, _format_date_et_str, _get_timezone
 from app.enrichment.service import enrich_meetings
 from app.profile.store import get_profile
@@ -85,6 +87,128 @@ def _trim_meeting_sections(meetings: list, max_items: Dict[str, int]) -> list:
     return meetings
 
 
+def _convert_raw_graph_to_events(raw_graph_events: List[dict]) -> List[Event]:
+    """
+    Convert raw Microsoft Graph API event shapes to Event objects.
+    
+    This mimics the conversion logic in MSGraphAdapter.fetch_events_between
+    to ensure stub mode exercises the same transformation pipeline.
+    
+    Args:
+        raw_graph_events: List of raw Graph API event dicts
+        
+    Returns:
+        List of Event objects
+    """
+    et_tz = ZoneInfo("America/New_York")
+    events = []
+    
+    for item in raw_graph_events:
+        # Skip cancelled events (same as adapter)
+        if item.get("isCancelled", False):
+            continue
+        
+        try:
+            # Parse start/end times (same logic as adapter)
+            start_obj = item.get("start", {})
+            start_dt_str = start_obj.get("dateTime", "")
+            start_tz_str = start_obj.get("timeZone", "America/New_York")
+            
+            end_obj = item.get("end", {})
+            end_dt_str = end_obj.get("dateTime", "")
+            end_tz_str = end_obj.get("timeZone", "America/New_York")
+            
+            if not start_dt_str or not end_dt_str:
+                continue
+            
+            # Parse datetime strings
+            start_dt = datetime.fromisoformat(start_dt_str)
+            end_dt = datetime.fromisoformat(end_dt_str)
+            
+            # Apply timezone if naive
+            if start_dt.tzinfo is None:
+                start_dt = start_dt.replace(tzinfo=ZoneInfo(start_tz_str))
+            if end_dt.tzinfo is None:
+                end_dt = end_dt.replace(tzinfo=ZoneInfo(end_tz_str))
+            
+            # Convert to ET
+            start_dt_et = start_dt.astimezone(et_tz)
+            end_dt_et = end_dt.astimezone(et_tz)
+            
+            # Normalize attendees (same logic as adapter)
+            attendees = []
+            for attendee in item.get("attendees", []):
+                email_address = attendee.get("emailAddress", {})
+                name = email_address.get("name", "")
+                email = email_address.get("address", "")
+                
+                # Extract company from email domain
+                company = None
+                if "@" in email:
+                    domain = email.split("@")[1]
+                    if domain and domain != "rpck.com":
+                        company = domain.split(".")[0].title()
+                
+                attendees.append(Attendee(
+                    name=name or email,
+                    email=email,
+                    company=company
+                ))
+            
+            # Add organizer to attendees if not already there
+            organizer = item.get("organizer", {}).get("emailAddress", {})
+            organizer_email = organizer.get("address", "")
+            organizer_name = organizer.get("name", "")
+            
+            if organizer_email:
+                organizer_in_attendees = any(
+                    (a.email or "").lower() == organizer_email.lower()
+                    for a in attendees
+                )
+                if not organizer_in_attendees:
+                    company = None
+                    if "@" in organizer_email:
+                        domain = organizer_email.split("@")[1]
+                        if domain and domain != "rpck.com":
+                            company = domain.split(".")[0].title()
+                    attendees.append(Attendee(
+                        name=organizer_name or organizer_email,
+                        email=organizer_email,
+                        company=company
+                    ))
+            
+            # Extract location
+            location = item.get("location", {}).get("displayName")
+            
+            # Extract notes
+            notes = item.get("bodyPreview", "")
+            if notes:
+                notes = notes.strip()[:500]
+            
+            # Create Event object
+            event = Event(
+                subject=item.get("subject", ""),
+                start_time=start_dt_et.isoformat(),
+                end_time=end_dt_et.isoformat(),
+                location=location,
+                attendees=attendees,
+                notes=notes,
+                id=item.get("id"),
+                organizer=organizer_email
+            )
+            
+            events.append(event)
+            
+        except Exception as e:
+            # Skip events that fail to parse (same as adapter)
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to parse stub event: {e}")
+            continue
+    
+    return events
+
+
 def _map_events_to_meetings(events: list[dict] | list) -> list[dict]:
     meetings: list[dict] = []
     for e in events:
@@ -117,7 +241,7 @@ def _map_events_to_meetings(events: list[dict] | list) -> list[dict]:
 
 
 def build_digest_context_with_provider(
-    source: Literal["sample", "live"],
+    source: Literal["sample", "live", "stub"],
     date: Optional[str] = None,
     exec_name: Optional[str] = None,
     mailbox: Optional[str] = None,
@@ -166,6 +290,26 @@ def build_digest_context_with_provider(
             logger = logging.getLogger(__name__)
             logger.exception("Unexpected error building preview context")
             raise HTTPException(status_code=500, detail="Unexpected error generating preview")
+    elif source == "stub":
+        # Stub mode - convert raw Graph shapes to Event objects, then through mapping pipeline
+        # This ensures stub mode exercises the same transformation as live mode
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Using stub mode with {len(STUB_MEETINGS_RAW_GRAPH)} raw Graph events")
+        
+        # Convert raw Graph shapes to Event objects (same as adapter does)
+        stub_events = _convert_raw_graph_to_events(STUB_MEETINGS_RAW_GRAPH)
+        logger.info(f"Converted to {len(stub_events)} Event objects")
+        
+        # Pass through same mapping as live mode
+        if stub_events:
+            meetings = _map_events_to_meetings([e.model_dump() for e in stub_events])
+            actual_source = "stub"
+            logger.info(f"Mapped to {len(meetings)} meetings")
+        else:
+            meetings = []
+            actual_source = "stub"
+            logger.info("No valid stub events after conversion")
     else:
         # Sample mode - use sample data
         meetings = SAMPLE_MEETINGS

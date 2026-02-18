@@ -27,4 +27,72 @@ SAMPLE_MEETINGS = [
     }
 ]
 
+# Stub meetings for POST /run-digest with source=stub
+# Raw Microsoft Graph API event shapes (before transformation to Event objects)
+# These mimic exactly what Graph API returns from /calendarView endpoint
+STUB_MEETINGS_RAW_GRAPH = [
+    {
+        "id": "stub-event-1",
+        "subject": "Stub: Acme Capital Check-in",
+        "start": {
+            "dateTime": "2025-02-18T09:30:00",
+            "timeZone": "America/New_York"
+        },
+        "end": {
+            "dateTime": "2025-02-18T10:30:00",
+            "timeZone": "America/New_York"
+        },
+        "location": {
+            "displayName": "Zoom"
+        },
+        "attendees": [
+            {
+                "emailAddress": {
+                    "name": "Jane Doe",
+                    "address": "jane.doe@acmecapital.com"
+                }
+            }
+        ],
+        "organizer": {
+            "emailAddress": {
+                "name": "Sorum Crofts",
+                "address": "sorum.crofts@rpck.com"
+            }
+        },
+        "isCancelled": False,
+        "bodyPreview": ""
+    },
+    {
+        "id": "stub-event-2",
+        "subject": "Stub: Beta Corp Intro",
+        "start": {
+            "dateTime": "2025-02-18T14:00:00",
+            "timeZone": "America/New_York"
+        },
+        "end": {
+            "dateTime": "2025-02-18T15:00:00",
+            "timeZone": "America/New_York"
+        },
+        "location": {
+            "displayName": "Microsoft Teams"
+        },
+        "attendees": [
+            {
+                "emailAddress": {
+                    "name": "John Smith",
+                    "address": "john.smith@betacorp.com"
+                }
+            }
+        ],
+        "organizer": {
+            "emailAddress": {
+                "name": "Sorum Crofts",
+                "address": "sorum.crofts@rpck.com"
+            }
+        },
+        "isCancelled": False,
+        "bodyPreview": ""
+    },
+]
+
 

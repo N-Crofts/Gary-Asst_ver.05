@@ -17,6 +17,7 @@ class AppConfig(BaseModel):
     allow_recipient_override: bool = False
     timezone: str = "America/New_York"
     api_key: Optional[str] = None
+    internal_api_key: Optional[str] = None
     slack_enabled: bool = False
     slack_bot_token: Optional[str] = None
     slack_channel_id: Optional[str] = None
@@ -47,6 +48,7 @@ def load_config() -> AppConfig:
         allow_recipient_override=os.getenv("ALLOW_RECIPIENT_OVERRIDE", "false").lower() == "true",
         timezone=os.getenv("TIMEZONE", "America/New_York"),
         api_key=os.getenv("API_KEY"),
+        internal_api_key=os.getenv("INTERNAL_API_KEY"),
         slack_enabled=os.getenv("SLACK_ENABLED", "false").lower() == "true",
         slack_bot_token=os.getenv("SLACK_BOT_TOKEN"),
         slack_channel_id=os.getenv("SLACK_CHANNEL_ID"),
