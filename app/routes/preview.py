@@ -237,13 +237,14 @@ async def preview_digest_latest(
         # Convert meetings to Pydantic models (context["meetings"] are already dicts from cache)
         meetings = [_convert_meeting_to_model(meeting) for meeting in context["meetings"]]
 
-        # Build response model
+        # Build response model (research_trace from cached context if present)
         response = DigestPreviewModel(
             ok=True,
             source=context["source"],
             date_human=context["date_human"],
             exec_name=context["exec_name"],
-            meetings=meetings
+            meetings=meetings,
+            research_trace=context.get("research_trace"),
         )
 
         return JSONResponse(content=response.model_dump())
@@ -301,13 +302,14 @@ async def preview_digest_json(
     # Convert meetings to Pydantic models
     meetings = [_convert_meeting_to_model(meeting) for meeting in context["meetings"]]
 
-    # Build response model
+    # Build response model (include research_trace for dev/debug; non-PII only)
     response = DigestPreviewModel(
         ok=True,
         source=context["source"],
         date_human=context["date_human"],
         exec_name=context["exec_name"],
-        meetings=meetings
+        meetings=meetings,
+        research_trace=context.get("research_trace"),
     )
 
     # Cache the result if it's for today (same as HTML preview)
@@ -365,13 +367,14 @@ async def preview_single_event_json(
     # Convert meetings to Pydantic models
     meetings = [_convert_meeting_to_model(meeting) for meeting in context["meetings"]]
 
-    # Build response model
+    # Build response model (single event may not have research_trace)
     response = DigestPreviewModel(
         ok=True,
         source=context["source"],
         date_human=context["date_human"],
         exec_name=context["exec_name"],
-        meetings=meetings
+        meetings=meetings,
+        research_trace=context.get("research_trace"),
     )
 
     return JSONResponse(content=response.model_dump())
@@ -479,13 +482,14 @@ async def preview_digest_latest(
         # Convert meetings to Pydantic models (context["meetings"] are already dicts from cache)
         meetings = [_convert_meeting_to_model(meeting) for meeting in context["meetings"]]
 
-        # Build response model
+        # Build response model (research_trace from cached context if present)
         response = DigestPreviewModel(
             ok=True,
             source=context["source"],
             date_human=context["date_human"],
             exec_name=context["exec_name"],
-            meetings=meetings
+            meetings=meetings,
+            research_trace=context.get("research_trace"),
         )
 
         return JSONResponse(content=response.model_dump())

@@ -29,6 +29,22 @@ MIN_RESEARCH_QUERY_CHARS = 3
 # Call-site identifiers where research is allowed (for documentation / future gating)
 RESEARCH_ALLOWED_PATHS: Set[str] = {"digest_preview", "run_digest", "digest_send"}
 
+# Minimum confidence (0..1) to run research. Below this we skip (one fallback allowed).
+RESEARCH_CONFIDENCE_MIN_ENV = "RESEARCH_CONFIDENCE_MIN"
+DEFAULT_CONF_MIN = 0.70
+
+
+def get_confidence_min() -> float:
+    """Minimum anchor confidence to run research. From env RESEARCH_CONFIDENCE_MIN, default 0.70."""
+    raw = (os.getenv(RESEARCH_CONFIDENCE_MIN_ENV) or "").strip()
+    if not raw:
+        return DEFAULT_CONF_MIN
+    try:
+        v = float(raw)
+        return max(0.0, min(1.0, v))
+    except ValueError:
+        return DEFAULT_CONF_MIN
+
 
 def env_bool(key: str, default: bool = False) -> bool:
     """Read a boolean env var consistently. True for 'true', '1', 'yes' (case-insensitive)."""
