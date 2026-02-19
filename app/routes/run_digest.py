@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from app.core.config import load_config
 from app.rendering.context_builder import build_digest_context_with_provider
 from app.rendering.digest_renderer import render_digest_html
+from app.research.config import MAX_TAVILY_CALLS_PER_REQUEST, ResearchBudget
 from app.rendering.plaintext import render_plaintext
 
 logger = logging.getLogger(__name__)
@@ -58,10 +59,14 @@ async def run_digest(
     source = body.source if body.source in ("live", "stub") else "live"
 
     try:
+        research_budget = ResearchBudget(MAX_TAVILY_CALLS_PER_REQUEST)
         context = build_digest_context_with_provider(
             source=source,
             date=date,
             mailbox=mailbox,
+            allow_research=True,
+            research_budget=research_budget,
+            request_id=run_id,
         )
     except HTTPException as e:
         logger.info(

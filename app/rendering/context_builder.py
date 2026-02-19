@@ -1,4 +1,8 @@
 import os
+import re
+import logging
+import uuid
+import time
 from datetime import datetime
 from typing import Dict, Any, Literal, Optional, List
 from zoneinfo import ZoneInfo
@@ -12,6 +16,65 @@ from app.rendering.digest_renderer import _today_et_str, _format_date_et_str, _g
 from app.enrichment.service import enrich_meetings
 from app.profile.store import get_profile
 from app.memory.service import attach_memory_to_meetings
+from app.research.config import (
+    MAX_TAVILY_CALLS_PER_REQUEST,
+    MAX_RESEARCH_SOURCES,
+    ResearchBudget,
+)
+from app.research.query_safety import sanitize_research_query, is_query_usable_after_sanitization
+
+logger = logging.getLogger(__name__)
+
+
+def _normalize_url_for_dedup(url: str) -> str:
+    """
+    Normalize URL for deduplication: trim, lowercase scheme/host, remove trailing slash.
+    Returns normalized string for comparison.
+    """
+    if not url:
+        return ""
+    url = url.strip()
+    if not url:
+        return ""
+    url_lower = url.lower()
+    # Normalize http/https to http for comparison (treat as equivalent)
+    if url_lower.startswith("https://"):
+        url_lower = "http://" + url_lower[8:]
+    # Remove trailing slash
+    if url_lower.endswith("/"):
+        url_lower = url_lower[:-1]
+    return url_lower
+
+
+def _dedupe_and_cap_sources(sources: List[Dict[str, Any]], max_items: int = 5) -> List[Dict[str, Any]]:
+    """
+    Deduplicate sources by normalized URL and cap to max_items (preserve order).
+    
+    Args:
+        sources: List of source dicts with 'title' and 'url' keys
+        max_items: Maximum number of sources to return (default 5)
+        
+    Returns:
+        Deduplicated and capped list of sources
+    """
+    if not sources:
+        return []
+    seen = set()
+    deduped = []
+    for s in sources:
+        if not isinstance(s, dict):
+            continue
+        url = s.get("url", "").strip()
+        title = s.get("title", "").strip()
+        if not url or not title:
+            continue
+        normalized = _normalize_url_for_dedup(url)
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            deduped.append({"title": title, "url": url})
+            if len(deduped) >= max_items:
+                break
+    return deduped
 
 
 def _format_time_for_display(iso_time: str) -> str:
@@ -217,13 +280,15 @@ def _map_events_to_meetings(events: list[dict] | list) -> list[dict]:
         subject = getattr(e, "subject", None) or e.get("subject", "")
         start_time = getattr(e, "start_time", None) or e.get("start_time", "")
         location = getattr(e, "location", None) or e.get("location")
+        organizer = getattr(e, "organizer", None) or e.get("organizer")
         attendees_raw = getattr(e, "attendees", None) or e.get("attendees", [])
         attendees = []
         for a in attendees_raw:
             name = getattr(a, "name", None) or a.get("name", "")
             title = getattr(a, "title", None) or a.get("title")
             company = getattr(a, "company", None) or a.get("company")
-            attendees.append({"name": name, "title": title, "company": company})
+            email = getattr(a, "email", None) or a.get("email")
+            attendees.append({"name": name, "title": title, "company": company, "email": email})
 
         meetings.append(
             {
@@ -231,6 +296,7 @@ def _map_events_to_meetings(events: list[dict] | list) -> list[dict]:
                 # For MVP, show only time component in ET readable form; use ISO string's time
                 "start_time": _format_time_for_display(start_time) if "T" in start_time else start_time,
                 "location": location,
+                "organizer": organizer,
                 "attendees": attendees,
                 "company": None,
                 "news": [],
@@ -246,6 +312,10 @@ def build_digest_context_with_provider(
     date: Optional[str] = None,
     exec_name: Optional[str] = None,
     mailbox: Optional[str] = None,
+    *,
+    allow_research: bool = False,
+    research_budget: Optional[ResearchBudget] = None,
+    request_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     requested_date = date
     if not requested_date:
@@ -358,6 +428,264 @@ def build_digest_context_with_provider(
         "exec_name": exec_name or profile.exec_name,  # Use profile default unless overridden
         "source": actual_source,
     }
+    req_id = request_id or str(uuid.uuid4())
+
+    # Endpoint/call-site gating: research only when allow_research=True (digest preview, run-digest, digest send)
+    if not allow_research:
+        context["research"] = {"summary": "", "key_points": [], "sources": []}
+        context["_research_computed"] = True
+        logger.info("RESEARCH_SKIPPED", extra={"reason": "endpoint_guard", "request_id": req_id})
+        return context
+
+    # Research computed once here and attached to context; no later step should call provider again
+    budget = research_budget if research_budget is not None else ResearchBudget(MAX_TAVILY_CALLS_PER_REQUEST)
+    context["_research_computed"] = False  # set True after we set context["research"]
+
+    from app.research.selector import should_run_research, select_research_provider
+    allowed, skip_reason = should_run_research()
+    if not allowed:
+        context["research"] = {"summary": "", "key_points": [], "sources": []}
+        context["_research_computed"] = True
+        logger.info("RESEARCH_SKIPPED", extra={"reason": skip_reason, "request_id": req_id})
+        return context
+
+    try:
+
+            def _meeting_to_data(m: Any) -> Dict[str, Any]:
+                """Normalize meeting to dict (handle Pydantic models)."""
+                if hasattr(m, "model_dump"):
+                    return m.model_dump()
+                if hasattr(m, "dict"):
+                    return m.dict()
+                if isinstance(m, dict):
+                    return m
+                return {}
+
+            def _domain_from_email(email: Any) -> str:
+                """Extract domain from email string; empty if not present."""
+                if not email:
+                    return ""
+                s = (email if isinstance(email, str) else str(email)).strip().lower()
+                if "@" in s:
+                    return s.split("@", 1)[1]
+                return ""
+
+            def _normalize_attendee(a: Any) -> Dict[str, Any]:
+                """Normalize attendee to dict."""
+                if isinstance(a, dict):
+                    return a
+                if hasattr(a, "model_dump"):
+                    return a.model_dump()
+                if hasattr(a, "dict"):
+                    return a.dict()
+                return {}
+
+            def score_meeting_for_research(meeting_data: Dict[str, Any]) -> int:
+                """Score meeting for research priority. Higher score = better candidate."""
+                subject = (meeting_data.get("subject") or meeting_data.get("title") or "").strip().lower()
+                
+                # Skip internal/admin subjects
+                skip_patterns = ["blocked time", "recap voice note", "complete forms", "admin", "internal hold"]
+                if any(pattern in subject for pattern in skip_patterns):
+                    return -9999
+                
+                score = 0
+                
+                # External organizer boost
+                org = meeting_data.get("organizer")
+                org_domain = _domain_from_email(org)
+                has_external_org = org_domain and org_domain != "rpck.com"
+                if has_external_org:
+                    score += 30
+                
+                # External attendee boost (cap at +45 for 3+ external attendees)
+                external_attendee_count = 0
+                for a in meeting_data.get("attendees") or []:
+                    ad = _normalize_attendee(a)
+                    if not isinstance(ad, dict):
+                        continue
+                    email = ad.get("email") or ad.get("address")
+                    dom = _domain_from_email(email)
+                    if dom and dom != "rpck.com":
+                        external_attendee_count += 1
+                score += min(external_attendee_count * 15, 45)
+                
+                # Subject keyword boosts
+                high_value_keywords = [
+                    "intro", "introductory", "kickoff", "diligence", "closing",
+                    "negotiation", "term sheet", "board", "investor", "financing",
+                    "acquisition", "dispute", "arbitration"
+                ]
+                if any(kw in subject for kw in high_value_keywords):
+                    score += 20
+                
+                if "call with" in subject or "meeting with" in subject:
+                    score += 10
+                
+                negative_keywords = ["internal", "admin", "recap", "blocked", "hold"]
+                if any(kw in subject for kw in negative_keywords):
+                    score -= 15
+                
+                # Attendee count shaping
+                attendee_count = len(meeting_data.get("attendees") or [])
+                has_external = has_external_org or external_attendee_count > 0
+                if 1 <= attendee_count <= 3 and has_external:
+                    score += 10
+                if attendee_count >= 8:
+                    score -= 5
+                
+                return score
+
+            def extract_counterparty_from_subject(subj: str) -> str:
+                """Extract counterparty name from subject patterns like 'Call with X', 'Intro: X'."""
+                if not subj or not subj.strip():
+                    return ""
+                subj = subj.strip()
+                m = re.search(
+                    r"^(?:call|meeting|intro|catch[- ]?up|1:1|one[- ]?on[- ]?one)\s+with\s+(.+)$",
+                    subj,
+                    re.IGNORECASE,
+                )
+                if m:
+                    name = m.group(1).strip().rstrip(".,;:—-")
+                    return name if name else ""
+                m = re.search(r"^intro\s*[:\-]\s*(.+)$", subj, re.IGNORECASE)
+                if m:
+                    name = m.group(1).strip().rstrip(".,;:—-")
+                    return name if name else ""
+                return ""
+
+            from app.research.anchor_utils import extract_org_from_subject, org_from_email_domain
+
+            # Score all meetings and pick highest-scoring candidate
+            candidate_meeting = None
+            best_score = -9999
+            for m in meetings_with_memory or []:
+                data = _meeting_to_data(m)
+                score = score_meeting_for_research(data)
+                if score > best_score:
+                    best_score = score
+                    candidate_meeting = m
+
+            if not candidate_meeting or best_score < 0:
+                context["research"] = {"summary": "", "key_points": [], "sources": []}
+                context["_research_computed"] = True
+                logger.info("RESEARCH_SKIPPED", extra={"reason": "no_candidate", "request_id": req_id})
+            else:
+                meeting_data = _meeting_to_data(candidate_meeting)
+                subject = (meeting_data.get("subject") or meeting_data.get("title") or "").strip()
+                exec_name = (context.get("exec_name") or "").strip().lower()
+                exec_mailbox = (user_mailbox or "").strip().lower()
+                anchor = ""
+                org_context = ""
+
+                # a) Try counterparty from subject (must not be exec)
+                counterparty_from_subject = extract_counterparty_from_subject(subject)
+                if counterparty_from_subject and counterparty_from_subject.lower() != exec_name:
+                    anchor = counterparty_from_subject.strip()
+
+                # b) Else try org/project from subject
+                if not anchor:
+                    org_from_subj = extract_org_from_subject(subject)
+                    if org_from_subj:
+                        anchor = org_from_subj
+
+                # c) Else if organizer is external, use org from organizer domain (prefer over person name)
+                if not anchor:
+                    org = meeting_data.get("organizer")
+                    org_domain = _domain_from_email(org)
+                    if org_domain and org_domain != "rpck.com":
+                        anchor = org_from_email_domain(org_domain)
+
+                # d) Else first external attendee: display_name + org_from_domain, or org_from_domain only
+                if not anchor:
+                    attendees_raw = meeting_data.get("attendees") or []
+                    if attendees_raw and isinstance(attendees_raw, list):
+                        for a in attendees_raw:
+                            a_data = _normalize_attendee(a)
+                            if not isinstance(a_data, dict):
+                                continue
+                            email = a_data.get("email") or a_data.get("address")
+                            dom = _domain_from_email(email)
+                            if not dom or dom == "rpck.com":
+                                continue
+                            display_name = (a_data.get("display_name") or a_data.get("name") or "").strip()
+                            display_name = str(display_name) if display_name else ""
+                            candidate_lower = display_name.lower()
+                            if exec_name and candidate_lower == exec_name:
+                                continue
+                            if exec_mailbox and display_name and exec_mailbox in candidate_lower:
+                                continue
+                            attendee_org = org_from_email_domain(dom)
+                            if display_name:
+                                anchor = display_name
+                                if attendee_org:
+                                    org_context = attendee_org
+                            else:
+                                anchor = attendee_org
+                            break
+
+                if not anchor:
+                    context["research"] = {"summary": "", "key_points": [], "sources": []}
+                    context["_research_computed"] = True
+                    logger.info("RESEARCH_SKIPPED", extra={"reason": "no_anchor", "request_id": req_id})
+                else:
+                    # Org/project-like: contains spaces and no comma-separated first/last
+                    has_comma_first_last = "," in anchor and len(anchor.split(",")) == 2
+                    anchor_has_spaces = " " in anchor
+                    is_org_like = anchor_has_spaces and not has_comma_first_last
+                    if is_org_like:
+                        research_topic = f"{anchor} (organization, leadership, business, recent news)"
+                    else:
+                        person_part = f"{anchor} {org_context}".strip()
+                        research_topic = f"{person_part} (role, company, recent news)"
+                    if len(research_topic) > 120:
+                        research_topic = research_topic[:117] + "..."
+                    research_topic = sanitize_research_query(research_topic)
+                    if not is_query_usable_after_sanitization(research_topic):
+                        context["research"] = {"summary": "", "key_points": [], "sources": []}
+                        context["_research_computed"] = True
+                        logger.info("RESEARCH_SKIPPED", extra={"reason": "query_sanitized_empty", "request_id": req_id})
+                    elif not budget.consume_one_or_false():
+                        context["research"] = {"summary": "", "key_points": [], "sources": []}
+                        context["_research_computed"] = True
+                        logger.info("RESEARCH_SKIPPED", extra={"reason": "budget_exhausted", "request_id": req_id})
+                    else:
+                        provider = select_research_provider()
+                        research_start = time.perf_counter()
+                        try:
+                            research_result = provider.get_research(research_topic)
+                        except Exception:
+                            research_result = {"summary": "", "key_points": [], "sources": []}
+                        duration_ms = int((time.perf_counter() - research_start) * 1000)
+                        if research_result.get("_duration_ms") is not None:
+                            duration_ms = research_result.pop("_duration_ms", duration_ms)
+                        if research_result.get("sources"):
+                            research_result["sources"] = _dedupe_and_cap_sources(
+                                research_result["sources"], max_items=MAX_RESEARCH_SOURCES
+                            )
+                        context["research"] = research_result
+                        context["_research_computed"] = True
+                        sources_count = len(context["research"].get("sources") or [])
+                        key_points_count = len(context["research"].get("key_points") or [])
+                        logger.info(
+                            "RESEARCH_OK",
+                            extra={
+                                "duration_ms": duration_ms,
+                                "sources_count": sources_count,
+                                "key_points_count": key_points_count,
+                                "request_id": req_id,
+                            },
+                        )
+
+    except Exception as e:
+        logger.exception(
+            "RESEARCH_CONTEXT_FAILURE",
+            extra={"error_type": type(e).__name__, "request_id": req_id}
+        )
+        context["research"] = {"summary": "", "key_points": [], "sources": []}
+        context["_research_computed"] = True
+
     return context
 
 

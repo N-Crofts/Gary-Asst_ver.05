@@ -253,6 +253,13 @@ AZURE_CLIENT_ID=xxxx
 AZURE_TENANT_ID=xxxx
 AZURE_CLIENT_SECRET=xxxx
 MAILBOX_ADDRESS=sorum.crofts@rpck.com
+
+# Research (Tavily): see "Research and dev guard" below
+# APP_ENV=development
+# RESEARCH_ENABLED=false
+# ENABLE_RESEARCH_DEV=false
+# TAVILY_ALLOW_ADVANCED=false
+
 # Optional, for later:
 # DATABASE_URL=postgresql://user:pass@localhost:5432/gary
 ```
@@ -261,6 +268,39 @@ Load them in Python with `python-dotenv`:
 ```python
 from dotenv import load_dotenv; load_dotenv()
 ```
+
+### Research and dev guard
+
+Research (Tavily) is gated so production can use it while local dev does not consume credits unless explicitly overridden.
+
+- **`RESEARCH_ENABLED`** — Must be truthy for research to run. When `false` or unset, research is skipped and `context["research"]` is set to the empty structure (no error).
+- **`APP_ENV`** — Environment name. Treat missing as `development`. Use `production` on Fly.io/production. (Falls back to `ENVIRONMENT` if `APP_ENV` is not set.)
+- **`ENABLE_RESEARCH_DEV`** — Override for development only. When `APP_ENV` (or `ENVIRONMENT`) is `development`, research runs only if this is truthy. Default is false so Tavily is never called in dev unless you opt in.
+
+**Behavior summary:**
+
+| RESEARCH_ENABLED | APP_ENV       | ENABLE_RESEARCH_DEV | Research |
+|------------------|---------------|----------------------|----------|
+| false            | any           | any                  | Off      |
+| true             | production    | any                  | On       |
+| true             | development   | false / unset        | Off (dev guard) |
+| true             | development   | true                 | On       |
+
+**Example for local dev (no Tavily calls):**
+
+```env
+APP_ENV=development
+RESEARCH_ENABLED=true
+ENABLE_RESEARCH_DEV=false
+```
+
+To use Tavily locally, set `ENABLE_RESEARCH_DEV=true` and ensure `TAVILY_API_KEY` is set.
+
+**Safety and cost controls:**
+
+- **`TAVILY_ALLOW_ADVANCED`** — Default `false`. Set `true` only to allow advanced Tavily operations (extract/map/crawl). Basic search is always allowed when research is on.
+- Research runs **only** when `allow_research=True` at an allowed call site: digest preview (`/digest/preview`), run-digest (`POST /run-digest`), and digest send (`/digest/send`). Other endpoints never call Tavily.
+- **Budget cap:** At most **1 Tavily call per request**. No retries, no parallel double-spend. Any failure or skip returns empty research and HTTP 200 (fail-closed).
 
 ---
 

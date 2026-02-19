@@ -17,6 +17,7 @@ class MeetingWithEnrichment(BaseModel):
     subject: str
     start_time: str
     location: Optional[str] = None
+    organizer: Optional[str] = None  # Organizer email for external-meeting detection
     attendees: List[dict] = []
     company: Optional[Company] = None
     news: List[NewsItem] = []

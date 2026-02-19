@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Request, HTTPException
-from fastapi.responses import JSONResponse
+import os
+import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
-import os
+
+from fastapi import APIRouter, Request, HTTPException
+from fastapi.responses import JSONResponse
 
 from app.schemas.digest import DigestSendRequest, DigestSendResponse
 from app.services.emailer import select_emailer_from_env
@@ -10,6 +12,7 @@ from app.rendering.digest_renderer import render_digest_html
 from app.rendering.plaintext import render_plaintext
 from app.rendering.context_builder import build_digest_context_with_provider
 from app.data.sample_digest import SAMPLE_MEETINGS
+from app.research.config import MAX_TAVILY_CALLS_PER_REQUEST, ResearchBudget
 from app.core.config import load_config
 from app.observability.logger import log_event, timing
 from app.routes.health import update_last_run
@@ -87,10 +90,15 @@ async def _handle_send(request: Request, body: DigestSendRequest):
 
     data_source = body.source or "sample"
 
-    # Build context using the context builder with mailbox support
+    # Build context using the context builder (research allowed for digest send)
+    request_id = str(uuid.uuid4())
+    research_budget = ResearchBudget(MAX_TAVILY_CALLS_PER_REQUEST)
     context = build_digest_context_with_provider(
         source=data_source,
-        mailbox=body.mailbox
+        mailbox=body.mailbox,
+        allow_research=True,
+        research_budget=research_budget,
+        request_id=request_id,
     )
     context["request"] = request
 

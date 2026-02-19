@@ -257,6 +257,7 @@ def enrich_meetings(meetings: List[Dict[str, Any]], now: float | None = None, ti
                 subject=m.get("subject", ""),
                 start_time=m.get("start_time", ""),
                 location=m.get("location"),
+                organizer=m.get("organizer"),
                 attendees=m.get("attendees", []),
                 company=company_model,
                 news=news,

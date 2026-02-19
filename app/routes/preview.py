@@ -1,3 +1,4 @@
+import uuid
 from fastapi import APIRouter, Request, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 from typing import Literal, Optional
@@ -8,6 +9,7 @@ from app.rendering.context_builder import build_digest_context_with_provider, bu
 from app.schemas.preview import DigestPreviewModel, MeetingModel, Attendee, Company, NewsItem
 from app.core.config import load_config
 from app.storage.cache import get_preview_cache
+from app.research.config import MAX_TAVILY_CALLS_PER_REQUEST, ResearchBudget
 
 
 def _validate_date(date_str: Optional[str]) -> Optional[str]:
@@ -160,9 +162,19 @@ async def _render_html_preview(
     import logging
     logger = logging.getLogger(__name__)
     
-    # Build context using shared context builder
+    # Build context using shared context builder (research allowed only here and run-digest/digest send)
+    request_id = str(uuid.uuid4())
+    research_budget = ResearchBudget(MAX_TAVILY_CALLS_PER_REQUEST)
     logger.info(f"Building digest context: source={source}, date={date}, mailbox={mailbox}")
-    context = build_digest_context_with_provider(source=source, date=date, exec_name=exec_name, mailbox=mailbox)
+    context = build_digest_context_with_provider(
+        source=source,
+        date=date,
+        exec_name=exec_name,
+        mailbox=mailbox,
+        allow_research=True,
+        research_budget=research_budget,
+        request_id=request_id,
+    )
     meeting_count = len(context.get("meetings", []))
     logger.info(f"Context built: source={context.get('source')}, meeting_count={meeting_count}, mailbox={mailbox}")
 
@@ -273,8 +285,18 @@ async def preview_digest_json(
     # Validate date format
     _validate_date(date)
 
-    # Build context using shared context builder
-    context = build_digest_context_with_provider(source=source, date=date, exec_name=exec_name, mailbox=mailbox)
+    # Build context using shared context builder (research allowed only here and run-digest/digest send)
+    request_id = str(uuid.uuid4())
+    research_budget = ResearchBudget(MAX_TAVILY_CALLS_PER_REQUEST)
+    context = build_digest_context_with_provider(
+        source=source,
+        date=date,
+        exec_name=exec_name,
+        mailbox=mailbox,
+        allow_research=True,
+        research_budget=research_budget,
+        request_id=request_id,
+    )
 
     # Convert meetings to Pydantic models
     meetings = [_convert_meeting_to_model(meeting) for meeting in context["meetings"]]

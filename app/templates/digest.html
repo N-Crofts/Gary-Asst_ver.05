@@ -86,7 +86,7 @@
                                 {% for n in m.news %}
                                   {% if n.title and n.url %}
                                     <li style="margin:6px 0;">
-                                      <a href="{{ n.url }}" style="color:#3a5d80; text-decoration:underline;">{{ n.title }}</a>
+                                      <a href="{{ n.url }}" target="_blank" rel="noopener noreferrer" style="color:#3a5d80; text-decoration:underline;">{{ n.title }}</a>
                                     </li>
                                   {% else %}
                                     <!-- Back-compat if plain string -->
@@ -177,6 +177,34 @@
                   </table>
                 </td>
               </tr>
+            {% endif %}
+
+            {% if research is defined and (research.summary or (research.key_points|default([])|length > 0) or (research.sources|default([])|length > 0)) %}
+            <!-- Research -->
+            <tr>
+              <td style="padding:16px 24px 0 24px;">
+                <div style="font-weight:800; font-size:15px; color:#111827; margin-bottom:10px;">Research</div>
+                {% if research.summary %}
+                <p style="margin:0 0 10px 0; font-size:13px; color:#374151; line-height:1.5;">{{ research.summary }}</p>
+                {% endif %}
+                {% if research.key_points and research.key_points|length > 0 %}
+                <ul style="margin:0 0 10px 0; padding-left:18px; font-size:13px; color:#374151;">
+                  {% for point in research.key_points %}
+                  <li style="margin:4px 0;">{{ point }}</li>
+                  {% endfor %}
+                </ul>
+                {% endif %}
+                {% if research.sources and research.sources|length > 0 %}
+                <div style="font-size:13px;">
+                  {% for s in research.sources %}
+                  {% if s.url and s.title %}
+                  <div style="margin:4px 0;"><a href="{{ s.url }}" target="_blank" rel="noopener noreferrer" style="color:#3a5d80; text-decoration:underline;">{{ s.title }}</a></div>
+                  {% endif %}
+                  {% endfor %}
+                </div>
+                {% endif %}
+              </td>
+            </tr>
             {% endif %}
 
             <!-- Footer -->
