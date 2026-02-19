@@ -179,10 +179,11 @@
               </tr>
             {% endif %}
 
-            {% if research is defined and (research.summary or (research.key_points|default([])|length > 0) or (research.sources|default([])|length > 0)) %}
+            {% if research is defined %}
             <!-- Research -->
             <tr>
               <td style="padding:16px 24px 0 24px;">
+                {% if research.summary or (research.key_points|default([])|length > 0) or (research.sources|default([])|length > 0) %}
                 <div style="font-weight:800; font-size:15px; color:#111827; margin-bottom:10px;">Research</div>
                 {% if research.summary %}
                 <p style="margin:0 0 10px 0; font-size:13px; color:#374151; line-height:1.5;">{{ research.summary }}</p>
@@ -202,6 +203,10 @@
                   {% endif %}
                   {% endfor %}
                 </div>
+                {% endif %}
+                {% else %}
+                <div style="font-weight:800; font-size:15px; color:#111827; margin-bottom:10px;">Research</div>
+                <p style="margin:0 0 10px 0; font-size:13px; color:#6b7280; line-height:1.5;">Research not included for this briefing. No high-confidence external meeting was detected.</p>
                 {% endif %}
               </td>
             </tr>

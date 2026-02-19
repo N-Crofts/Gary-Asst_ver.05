@@ -1,4 +1,4 @@
-from typing import List, Optional, Literal
+from typing import Any, Dict, List, Optional, Literal
 from pydantic import BaseModel, HttpUrl
 
 
@@ -35,3 +35,4 @@ class DigestPreviewModel(BaseModel):
     date_human: str
     exec_name: str = 'Sorum Crofts'
     meetings: List[MeetingModel]
+    research_trace: Optional[Dict[str, Any]] = None  # Non-PII observability; for dev/debug only

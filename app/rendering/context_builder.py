@@ -20,8 +20,23 @@ from app.research.config import (
     MAX_TAVILY_CALLS_PER_REQUEST,
     MAX_RESEARCH_SOURCES,
     ResearchBudget,
+    get_confidence_min,
 )
 from app.research.query_safety import sanitize_research_query, is_query_usable_after_sanitization
+from app.research.trace import (
+    build_research_trace,
+    query_hash_prefix,
+    ResearchOutcome,
+    SkipReason,
+    AnchorType,
+    AnchorSource,
+)
+from app.research.confidence import (
+    compute_confidence,
+    is_domain_generic,
+    is_domain_ambiguous_short,
+    is_meeting_like_test,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -317,6 +332,14 @@ def build_digest_context_with_provider(
     research_budget: Optional[ResearchBudget] = None,
     request_id: Optional[str] = None,
 ) -> Dict[str, Any]:
+    logger = logging.getLogger(__name__)
+
+    def _safe_research_extra(ctx: Dict[str, Any], rid: Optional[str]) -> Dict[str, Any]:
+        trace = ctx.get("research_trace") or {}
+        if not isinstance(trace, dict):
+            trace = {"research_trace_type": str(type(trace))}
+        return {**trace, "request_id": rid}
+
     requested_date = date
     if not requested_date:
         requested_date = datetime.now().strftime("%Y-%m-%d")
@@ -335,8 +358,6 @@ def build_digest_context_with_provider(
 
     if source == "live":
         try:
-            import logging
-            logger = logging.getLogger(__name__)
             logger.info(f"Fetching live calendar events for date={requested_date}, user={user_mailbox}")
             provider = select_calendar_provider()
             provider_name = type(provider).__name__
@@ -358,8 +379,6 @@ def build_digest_context_with_provider(
             raise
         except Exception as e:
             # Provider error - log full exception with context
-            import logging
-            logger = logging.getLogger(__name__)
             logger.exception(
                 "PREVIEW_FAILED",
                 extra={
@@ -373,8 +392,6 @@ def build_digest_context_with_provider(
     elif source == "stub":
         # Stub mode - convert raw Graph shapes to Event objects, then through mapping pipeline
         # This ensures stub mode exercises the same transformation as live mode
-        import logging
-        logger = logging.getLogger(__name__)
         logger.info(f"Using stub mode with {len(STUB_MEETINGS_RAW_GRAPH)} raw Graph events")
         
         # Convert raw Graph shapes to Event objects (same as adapter does)
@@ -433,6 +450,11 @@ def build_digest_context_with_provider(
     # Endpoint/call-site gating: research only when allow_research=True (digest preview, run-digest, digest send)
     if not allow_research:
         context["research"] = {"summary": "", "key_points": [], "sources": []}
+        context["research_trace"] = build_research_trace(
+            attempted=False,
+            outcome=ResearchOutcome.SKIPPED.value,
+            skip_reason=SkipReason.ENDPOINT_GUARD.value,
+        )
         context["_research_computed"] = True
         logger.info("RESEARCH_SKIPPED", extra={"reason": "endpoint_guard", "request_id": req_id})
         return context
@@ -445,10 +467,17 @@ def build_digest_context_with_provider(
     allowed, skip_reason = should_run_research()
     if not allowed:
         context["research"] = {"summary": "", "key_points": [], "sources": []}
+        skip_reason_enum = SkipReason.DISABLED.value if skip_reason == "disabled" else SkipReason.DEV_GUARD.value
+        context["research_trace"] = build_research_trace(
+            attempted=False,
+            outcome=ResearchOutcome.SKIPPED.value,
+            skip_reason=skip_reason_enum,
+        )
         context["_research_computed"] = True
         logger.info("RESEARCH_SKIPPED", extra={"reason": skip_reason, "request_id": req_id})
         return context
 
+    selection_start = time.perf_counter()
     try:
 
             def _meeting_to_data(m: Any) -> Dict[str, Any]:
@@ -568,8 +597,16 @@ def build_digest_context_with_provider(
                     candidate_meeting = m
 
             if not candidate_meeting or best_score < 0:
+                selection_ms = int((time.perf_counter() - selection_start) * 1000)
                 context["research"] = {"summary": "", "key_points": [], "sources": []}
+                context["research_trace"] = build_research_trace(
+                    attempted=True,
+                    outcome=ResearchOutcome.SKIPPED.value,
+                    skip_reason=SkipReason.NO_CANDIDATE.value,
+                    timings_ms={"selection_ms": selection_ms, "tavily_ms": 0, "summarize_ms": 0},
+                )
                 context["_research_computed"] = True
+                logger.info("RESEARCH_RESULT", extra=_safe_research_extra(context, req_id))
                 logger.info("RESEARCH_SKIPPED", extra={"reason": "no_candidate", "request_id": req_id})
             else:
                 meeting_data = _meeting_to_data(candidate_meeting)
@@ -578,24 +615,57 @@ def build_digest_context_with_provider(
                 exec_mailbox = (user_mailbox or "").strip().lower()
                 anchor = ""
                 org_context = ""
+                anchor_type_str: Optional[str] = None
+                anchor_source_str: Optional[str] = None
+                primary_domain = ""
+                has_attendee_display_name = False
+                person_name_for_fallback = ""
+                anchor_from_subject = False
+
+                # Resolve primary_domain (organizer or first external attendee)
+                org = meeting_data.get("organizer")
+                org_domain = _domain_from_email(org)
+                if org_domain and org_domain != "rpck.com":
+                    primary_domain = org_domain
+                for a in meeting_data.get("attendees") or []:
+                    ad = _normalize_attendee(a)
+                    if not isinstance(ad, dict):
+                        continue
+                    dom = _domain_from_email(ad.get("email") or ad.get("address"))
+                    if dom and dom != "rpck.com":
+                        if not primary_domain:
+                            primary_domain = dom
+                        if (ad.get("display_name") or ad.get("name") or "").strip():
+                            has_attendee_display_name = True
+                        if not person_name_for_fallback:
+                            person_name_for_fallback = (ad.get("display_name") or ad.get("name") or "").strip() or ""
 
                 # a) Try counterparty from subject (must not be exec)
                 counterparty_from_subject = extract_counterparty_from_subject(subject)
                 if counterparty_from_subject and counterparty_from_subject.lower() != exec_name:
                     anchor = counterparty_from_subject.strip()
+                    anchor_type_str = AnchorType.PERSON.value
+                    anchor_source_str = AnchorSource.SUBJECT_COUNTERPARTY.value
+                    anchor_from_subject = True
+                    if not person_name_for_fallback:
+                        person_name_for_fallback = anchor
 
                 # b) Else try org/project from subject
                 if not anchor:
                     org_from_subj = extract_org_from_subject(subject)
                     if org_from_subj:
                         anchor = org_from_subj
+                        anchor_type_str = AnchorType.ORG.value
+                        anchor_source_str = AnchorSource.SUBJECT_ORG.value
+                        anchor_from_subject = True
 
-                # c) Else if organizer is external, use org from organizer domain (prefer over person name)
-                if not anchor:
-                    org = meeting_data.get("organizer")
-                    org_domain = _domain_from_email(org)
-                    if org_domain and org_domain != "rpck.com":
-                        anchor = org_from_email_domain(org_domain)
+                # c) Else if organizer is external, use org from organizer domain
+                if not anchor and org_domain and org_domain != "rpck.com":
+                    anchor = org_from_email_domain(org_domain)
+                    anchor_type_str = AnchorType.DOMAIN.value
+                    anchor_source_str = AnchorSource.ORGANIZER_DOMAIN.value
+                    if not primary_domain:
+                        primary_domain = org_domain
 
                 # d) Else first external attendee: display_name + org_from_domain, or org_from_domain only
                 if not anchor:
@@ -621,62 +691,200 @@ def build_digest_context_with_provider(
                                 anchor = display_name
                                 if attendee_org:
                                     org_context = attendee_org
+                                anchor_type_str = AnchorType.PERSON.value
+                                anchor_source_str = AnchorSource.ATTENDEE.value
+                                if not person_name_for_fallback:
+                                    person_name_for_fallback = display_name
                             else:
                                 anchor = attendee_org
+                                anchor_type_str = AnchorType.DOMAIN.value
+                                anchor_source_str = AnchorSource.ATTENDEE.value
+                            if not primary_domain:
+                                primary_domain = dom
                             break
 
                 if not anchor:
+                    selection_ms = int((time.perf_counter() - selection_start) * 1000)
                     context["research"] = {"summary": "", "key_points": [], "sources": []}
+                    context["research_trace"] = build_research_trace(
+                        attempted=True,
+                        outcome=ResearchOutcome.SKIPPED.value,
+                        skip_reason=SkipReason.NO_ANCHOR.value,
+                        timings_ms={"selection_ms": selection_ms, "tavily_ms": 0, "summarize_ms": 0},
+                    )
                     context["_research_computed"] = True
+                    logger.info("RESEARCH_RESULT", extra=_safe_research_extra(context, req_id))
                     logger.info("RESEARCH_SKIPPED", extra={"reason": "no_anchor", "request_id": req_id})
                 else:
-                    # Org/project-like: contains spaces and no comma-separated first/last
-                    has_comma_first_last = "," in anchor and len(anchor.split(",")) == 2
-                    anchor_has_spaces = " " in anchor
-                    is_org_like = anchor_has_spaces and not has_comma_first_last
-                    if is_org_like:
-                        research_topic = f"{anchor} (organization, leadership, business, recent news)"
-                    else:
-                        person_part = f"{anchor} {org_context}".strip()
-                        research_topic = f"{person_part} (role, company, recent news)"
-                    if len(research_topic) > 120:
-                        research_topic = research_topic[:117] + "..."
-                    research_topic = sanitize_research_query(research_topic)
-                    if not is_query_usable_after_sanitization(research_topic):
+                    CONF_MIN = get_confidence_min()
+                    # Test meeting check first (skip before confidence)
+                    if is_meeting_like_test(meeting_data, exec_mailbox or None):
+                        selection_ms = int((time.perf_counter() - selection_start) * 1000)
                         context["research"] = {"summary": "", "key_points": [], "sources": []}
-                        context["_research_computed"] = True
-                        logger.info("RESEARCH_SKIPPED", extra={"reason": "query_sanitized_empty", "request_id": req_id})
-                    elif not budget.consume_one_or_false():
-                        context["research"] = {"summary": "", "key_points": [], "sources": []}
-                        context["_research_computed"] = True
-                        logger.info("RESEARCH_SKIPPED", extra={"reason": "budget_exhausted", "request_id": req_id})
-                    else:
-                        provider = select_research_provider()
-                        research_start = time.perf_counter()
-                        try:
-                            research_result = provider.get_research(research_topic)
-                        except Exception:
-                            research_result = {"summary": "", "key_points": [], "sources": []}
-                        duration_ms = int((time.perf_counter() - research_start) * 1000)
-                        if research_result.get("_duration_ms") is not None:
-                            duration_ms = research_result.pop("_duration_ms", duration_ms)
-                        if research_result.get("sources"):
-                            research_result["sources"] = _dedupe_and_cap_sources(
-                                research_result["sources"], max_items=MAX_RESEARCH_SOURCES
-                            )
-                        context["research"] = research_result
-                        context["_research_computed"] = True
-                        sources_count = len(context["research"].get("sources") or [])
-                        key_points_count = len(context["research"].get("key_points") or [])
-                        logger.info(
-                            "RESEARCH_OK",
-                            extra={
-                                "duration_ms": duration_ms,
-                                "sources_count": sources_count,
-                                "key_points_count": key_points_count,
-                                "request_id": req_id,
-                            },
+                        context["research_trace"] = build_research_trace(
+                            attempted=True,
+                            outcome=ResearchOutcome.SKIPPED.value,
+                            skip_reason=SkipReason.MEETING_MARKED_TEST.value,
+                            anchor_type=anchor_type_str,
+                            anchor_source=anchor_source_str,
+                            confidence=0.0,
+                            timings_ms={"selection_ms": selection_ms, "tavily_ms": 0, "summarize_ms": 0},
+                            sources_count=0,
                         )
+                        context["_research_computed"] = True
+                        logger.info("RESEARCH_RESULT", extra=_safe_research_extra(context, req_id))
+                        logger.info("RESEARCH_SKIPPED", extra={"reason": "meeting_marked_test", "request_id": req_id})
+                    else:
+                        has_external = bool(primary_domain and primary_domain != "rpck.com")
+                        primary_conf = compute_confidence(
+                            meeting_data=meeting_data,
+                            anchor_type=anchor_type_str or "person",
+                            has_org_context=bool(org_context),
+                            primary_domain=primary_domain,
+                            anchor_from_subject=anchor_from_subject,
+                            has_external_domain=has_external,
+                            has_attendee_display_name=has_attendee_display_name,
+                            mailbox=exec_mailbox or None,
+                        )
+                        # Build primary query
+                        has_comma_first_last = "," in anchor and len(anchor.split(",")) == 2
+                        anchor_has_spaces = " " in anchor
+                        is_org_like = anchor_has_spaces and not has_comma_first_last
+                        if is_org_like:
+                            primary_query_raw = f"{anchor} (organization, leadership, business, recent news)"
+                        else:
+                            primary_query_raw = f"{anchor} {org_context}".strip() + " (role, company, recent news)"
+                        if len(primary_query_raw) > 120:
+                            primary_query_raw = primary_query_raw[:117] + "..."
+                        primary_query = sanitize_research_query(primary_query_raw)
+                        if not is_query_usable_after_sanitization(primary_query):
+                            selection_ms = int((time.perf_counter() - selection_start) * 1000)
+                            context["research"] = {"summary": "", "key_points": [], "sources": []}
+                            context["research_trace"] = build_research_trace(
+                                attempted=True,
+                                outcome=ResearchOutcome.SKIPPED.value,
+                                skip_reason=SkipReason.QUERY_SANITIZED_EMPTY.value,
+                                anchor_type=anchor_type_str,
+                                anchor_source=anchor_source_str,
+                                confidence=round(primary_conf, 4),
+                                timings_ms={"selection_ms": selection_ms, "tavily_ms": 0, "summarize_ms": 0},
+                            )
+                            context["_research_computed"] = True
+                            logger.info("RESEARCH_RESULT", extra=_safe_research_extra(context, req_id))
+                            logger.info("RESEARCH_SKIPPED", extra={"reason": "query_sanitized_empty", "request_id": req_id})
+                        else:
+                            chosen_query: Optional[str] = None
+                            chosen_confidence = primary_conf
+                            # Use primary if confidence sufficient
+                            if primary_conf >= CONF_MIN:
+                                chosen_query = primary_query
+                            # Fallback A: org/domain anchor with ambiguous short domain + person name -> person query with domain as context
+                            if chosen_query is None and anchor_type_str in (AnchorType.ORG.value, AnchorType.DOMAIN.value) and primary_domain and is_domain_ambiguous_short(primary_domain) and person_name_for_fallback:
+                                fallback_a_raw = f"{person_name_for_fallback} {primary_domain} (company, role, recent news)".strip()
+                                if len(fallback_a_raw) > 120:
+                                    fallback_a_raw = fallback_a_raw[:117] + "..."
+                                fallback_a_query = sanitize_research_query(fallback_a_raw)
+                                if is_query_usable_after_sanitization(fallback_a_query):
+                                    conf_fallback_a = compute_confidence(
+                                        meeting_data=meeting_data,
+                                        anchor_type=AnchorType.PERSON.value,
+                                        has_org_context=True,
+                                        primary_domain=primary_domain,
+                                        anchor_from_subject=anchor_from_subject,
+                                        has_external_domain=has_external,
+                                        has_attendee_display_name=has_attendee_display_name,
+                                        mailbox=exec_mailbox or None,
+                                    )
+                                    if conf_fallback_a >= CONF_MIN:
+                                        chosen_query = fallback_a_query
+                                        chosen_confidence = conf_fallback_a
+                            # Fallback B: person anchor, no org_context, domain non-generic and not short -> domain/org query
+                            if chosen_query is None and anchor_type_str == AnchorType.PERSON.value and not org_context and primary_domain and not is_domain_generic(primary_domain) and not is_domain_ambiguous_short(primary_domain):
+                                domain_org_name = org_from_email_domain(primary_domain)
+                                if domain_org_name:
+                                    fallback_b_raw = f"{domain_org_name} (organization, leadership, business, recent news)"
+                                    if len(fallback_b_raw) > 120:
+                                        fallback_b_raw = fallback_b_raw[:117] + "..."
+                                    fallback_b_query = sanitize_research_query(fallback_b_raw)
+                                    if is_query_usable_after_sanitization(fallback_b_query):
+                                        conf_fallback_b = compute_confidence(
+                                            meeting_data=meeting_data,
+                                            anchor_type=AnchorType.DOMAIN.value,
+                                            has_org_context=False,
+                                            primary_domain=primary_domain,
+                                            anchor_from_subject=anchor_from_subject,
+                                            has_external_domain=has_external,
+                                            has_attendee_display_name=has_attendee_display_name,
+                                            mailbox=exec_mailbox or None,
+                                        )
+                                        if conf_fallback_b >= CONF_MIN:
+                                            chosen_query = fallback_b_query
+                                            chosen_confidence = conf_fallback_b
+
+                            if chosen_query is None:
+                                selection_ms = int((time.perf_counter() - selection_start) * 1000)
+                                context["research"] = {"summary": "", "key_points": [], "sources": []}
+                                context["research_trace"] = build_research_trace(
+                                    attempted=True,
+                                    outcome=ResearchOutcome.SKIPPED.value,
+                                    skip_reason=SkipReason.LOW_CONFIDENCE_ANCHOR.value,
+                                    anchor_type=anchor_type_str,
+                                    anchor_source=anchor_source_str,
+                                    confidence=round(chosen_confidence, 4),
+                                    timings_ms={"selection_ms": selection_ms, "tavily_ms": 0, "summarize_ms": 0},
+                                )
+                                context["_research_computed"] = True
+                                logger.info("RESEARCH_RESULT", extra=_safe_research_extra(context, req_id))
+                                logger.info("RESEARCH_SKIPPED", extra={"reason": "low_confidence_anchor", "request_id": req_id})
+                            elif not budget.consume_one_or_false():
+                                selection_ms = int((time.perf_counter() - selection_start) * 1000)
+                                context["research"] = {"summary": "", "key_points": [], "sources": []}
+                                context["research_trace"] = build_research_trace(
+                                    attempted=True,
+                                    outcome=ResearchOutcome.SKIPPED.value,
+                                    skip_reason=SkipReason.BUDGET_EXHAUSTED.value,
+                                    anchor_type=anchor_type_str,
+                                    anchor_source=anchor_source_str,
+                                    confidence=round(chosen_confidence, 4),
+                                    query_hash=query_hash_prefix(chosen_query),
+                                    query_len=len(chosen_query),
+                                    timings_ms={"selection_ms": selection_ms, "tavily_ms": 0, "summarize_ms": 0},
+                                )
+                                context["_research_computed"] = True
+                                logger.info("RESEARCH_RESULT", extra=_safe_research_extra(context, req_id))
+                                logger.info("RESEARCH_SKIPPED", extra={"reason": "budget_exhausted", "request_id": req_id})
+                            else:
+                                provider = select_research_provider()
+                                tavily_start = time.perf_counter()
+                                try:
+                                    research_result = provider.get_research(chosen_query)
+                                except Exception:
+                                    research_result = {"summary": "", "key_points": [], "sources": []}
+                                tavily_ms = int((time.perf_counter() - tavily_start) * 1000)
+                                if research_result.get("_duration_ms") is not None:
+                                    tavily_ms = research_result.pop("_duration_ms", tavily_ms)
+                                if research_result.get("sources"):
+                                    research_result["sources"] = _dedupe_and_cap_sources(
+                                        research_result["sources"], max_items=MAX_RESEARCH_SOURCES
+                                    )
+                                selection_ms = int((time.perf_counter() - selection_start) * 1000)
+                                sources_count = len(research_result.get("sources") or [])
+                                has_content = bool(research_result.get("summary") or research_result.get("key_points") or research_result.get("sources"))
+                                outcome = ResearchOutcome.SUCCESS.value if has_content else ResearchOutcome.ERROR.value
+                                context["research"] = research_result
+                                context["research_trace"] = build_research_trace(
+                                    attempted=True,
+                                    outcome=outcome,
+                                    anchor_type=anchor_type_str,
+                                    anchor_source=anchor_source_str,
+                                    confidence=round(chosen_confidence, 4),
+                                    query_hash=query_hash_prefix(chosen_query),
+                                    query_len=len(chosen_query),
+                                    timings_ms={"selection_ms": selection_ms, "tavily_ms": tavily_ms, "summarize_ms": 0},
+                                    sources_count=sources_count,
+                                )
+                                context["_research_computed"] = True
+                                logger.info("RESEARCH_RESULT", extra=_safe_research_extra(context, req_id))
 
     except Exception as e:
         logger.exception(
@@ -684,6 +892,12 @@ def build_digest_context_with_provider(
             extra={"error_type": type(e).__name__, "request_id": req_id}
         )
         context["research"] = {"summary": "", "key_points": [], "sources": []}
+        selection_ms = int((time.perf_counter() - selection_start) * 1000)
+        context["research_trace"] = build_research_trace(
+            attempted=True,
+            outcome=ResearchOutcome.ERROR.value,
+            timings_ms={"selection_ms": selection_ms, "tavily_ms": 0, "summarize_ms": 0},
+        )
         context["_research_computed"] = True
 
     return context

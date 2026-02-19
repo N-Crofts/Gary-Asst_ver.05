@@ -302,6 +302,20 @@ To use Tavily locally, set `ENABLE_RESEARCH_DEV=true` and ensure `TAVILY_API_KEY
 - Research runs **only** when `allow_research=True` at an allowed call site: digest preview (`/digest/preview`), run-digest (`POST /run-digest`), and digest send (`/digest/send`). Other endpoints never call Tavily.
 - **Budget cap:** At most **1 Tavily call per request**. No retries, no parallel double-spend. Any failure or skip returns empty research and HTTP 200 (fail-closed).
 
+**Research observability (ResearchTrace):**
+
+Each digest context includes a non-PII `research_trace` object (and one `RESEARCH_RESULT` log line) with:
+
+- **attempted** (bool), **outcome** (`"success"` | `"skipped"` | `"error"`)
+- **skip_reason** (enum): e.g. `endpoint_guard`, `no_candidate`, `no_anchor`, `low_confidence_anchor`, `meeting_marked_test`, `query_sanitized_empty`, `budget_exhausted`
+- **anchor_type** / **anchor_source** (enums): how the research anchor was chosen (person/org/domain; subject/organizer/attendee)
+- **confidence** (float 0..1): anchor confidence score; research runs only when ≥ `RESEARCH_CONFIDENCE_MIN` (default 0.70)
+- **query_hash** (first 10 chars of sha256 of sanitized query), **query_len** (int): for debugging without logging the query
+- **timings_ms**: `selection_ms`, `tavily_ms`, `summarize_ms`
+- **sources_count** (int)
+
+To debug without PII: use `RESEARCH_RESULT` logs and `context["research_trace"]` (e.g. in tests or internal tools). Do not log subject, attendee emails, anchor strings, or raw query. Optional env `RESEARCH_CONFIDENCE_MIN` (default 0.70) tunes the confidence threshold.
+
 ---
 
 ## Required Environment Variables for ms_graph Preview (Fly Deployment)
