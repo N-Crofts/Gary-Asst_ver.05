@@ -5,7 +5,7 @@ This guide provides step-by-step instructions for deploying Gary-Asst to Fly.io.
 ## Prerequisites
 
 - [Fly.io CLI](https://fly.io/docs/getting-started/installing-flyctl/) installed
-- Fly.io account created
+- Fly.io account created (using `gary.asst.project@gmail.com`)
 - Environment variables ready (see below)
 
 ## Deployment Steps

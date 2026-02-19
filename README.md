@@ -266,6 +266,8 @@ from dotenv import load_dotenv; load_dotenv()
 
 ## Required Environment Variables for ms_graph Preview (Fly Deployment)
 
+**Note:** Fly.io deployment uses the account `gary.asst.project@gmail.com` for authentication and credentials.
+
 When deploying to Fly.io with `CALENDAR_PROVIDER=ms_graph`, the following environment variables must be set as Fly secrets:
 
 ### Required:
