@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 from typing import Dict, Any, Literal, Optional, List
 from zoneinfo import ZoneInfo
@@ -268,10 +269,11 @@ def build_digest_context_with_provider(
             logger = logging.getLogger(__name__)
             logger.info(f"Fetching live calendar events for date={requested_date}, user={user_mailbox}")
             provider = select_calendar_provider()
-            logger.info(f"Using calendar provider: {type(provider).__name__}")
+            provider_name = type(provider).__name__
+            logger.info(f"Using calendar provider: {provider_name} (CALENDAR_PROVIDER={os.getenv('CALENDAR_PROVIDER', 'not set')})")
             # Pass mailbox/user to filter events for specific user
             events = provider.fetch_events(requested_date, user=user_mailbox)
-            logger.info(f"Received {len(events)} events from provider for {requested_date}")
+            logger.info(f"Received {len(events)} events from provider {provider_name} for {requested_date}, mailbox={user_mailbox}")
             if events:
                 meetings = _map_events_to_meetings([e.model_dump() for e in events])
                 actual_source = "live"
@@ -285,11 +287,19 @@ def build_digest_context_with_provider(
             # Re-raise HTTPExceptions (e.g., 403, 401) so they propagate with correct status codes
             raise
         except Exception as e:
-            # Provider error - log and return empty meetings
+            # Provider error - log full exception with context
             import logging
             logger = logging.getLogger(__name__)
-            logger.exception("Unexpected error building preview context")
-            raise HTTPException(status_code=500, detail="Unexpected error generating preview")
+            logger.exception(
+                "PREVIEW_FAILED",
+                extra={
+                    "source": source,
+                    "date": requested_date,
+                    "mailbox": user_mailbox,
+                    "error_type": type(e).__name__,
+                }
+            )
+            raise HTTPException(status_code=500, detail="preview failed: PREVIEW_FAILED")
     elif source == "stub":
         # Stub mode - convert raw Graph shapes to Event objects, then through mapping pipeline
         # This ensures stub mode exercises the same transformation as live mode
@@ -411,8 +421,17 @@ def build_single_event_context(
             # Unexpected error - log and raise HTTPException
             import logging
             logger = logging.getLogger(__name__)
-            logger.exception("Unexpected error building single event preview context")
-            raise HTTPException(status_code=500, detail="Unexpected error generating preview")
+            logger.exception(
+                "PREVIEW_FAILED",
+                extra={
+                    "source": source,
+                    "date": requested_date,
+                    "mailbox": user_mailbox,
+                    "event_id": event_id,
+                    "error_type": type(e).__name__,
+                }
+            )
+            raise HTTPException(status_code=500, detail="preview failed: PREVIEW_FAILED")
 
     # If no meeting found in live data, try sample data
     if not meeting:

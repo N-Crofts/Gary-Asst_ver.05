@@ -27,11 +27,12 @@ class MSGraphAdapter:
         self._access_token: Optional[str] = None
         self._token_expires_at: float = 0.0
         
-        # Log allowed mailboxes at startup
-        if self.allowed_mailboxes:
-            logger.info(f"Allowed mailboxes: {self.allowed_mailboxes}")
+        # Log allowed mailboxes at startup (count only, no values)
+        mailbox_count = len(self.allowed_mailboxes)
+        if mailbox_count > 0:
+            logger.info(f"MSGraphAdapter initialized with {mailbox_count} allowed mailbox(es) configured")
         else:
-            logger.warning("No allowed mailboxes configured - all mailbox access will be denied")
+            logger.warning("MSGraphAdapter initialized with no allowed_mailboxes configured - all mailbox access will be denied")
 
     def _get_access_token(self) -> str:
         """Get or refresh access token using client credentials flow."""
@@ -157,7 +158,8 @@ class MSGraphAdapter:
             raise ValueError(f"Mailbox access denied: No allowed mailboxes configured. Requested: {mailbox}")
         
         if mailbox_lower not in self.allowed_mailboxes:
-            raise ValueError(f"Mailbox access denied: {mailbox} is not in allowlist. Allowed: {self.allowed_mailboxes}")
+            allowed_count = len(self.allowed_mailboxes)
+            raise ValueError(f"Mailbox access denied: {mailbox} is not in allowlist. {allowed_count} mailbox(es) configured in allowed_mailboxes")
 
     def _parse_graph_datetime(self, graph_datetime_obj: dict) -> datetime:
         """
@@ -684,16 +686,41 @@ class MSGraphAdapter:
 
 def create_ms_graph_adapter() -> MSGraphAdapter:
     """Factory function to create MSGraphAdapter from environment variables."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Diagnostic logging: check presence of required env vars (values NOT logged)
+    calendar_provider = os.getenv("CALENDAR_PROVIDER", "not set")
+    has_tenant_id = bool(os.getenv("MS_TENANT_ID") or os.getenv("AZURE_TENANT_ID"))
+    has_client_id = bool(os.getenv("MS_CLIENT_ID") or os.getenv("AZURE_CLIENT_ID"))
+    has_client_secret = bool(os.getenv("MS_CLIENT_SECRET") or os.getenv("AZURE_CLIENT_SECRET"))
+    has_user_email = bool(os.getenv("MS_USER_EMAIL"))
+    has_allowed_mailbox_group = bool(os.getenv("ALLOWED_MAILBOX_GROUP"))
+    
+    # Load allowed mailboxes from config to check presence
+    config = load_config()
+    allowed_mailboxes = config.allowed_mailboxes
+    has_allowed_mailboxes = len(allowed_mailboxes) > 0
+    allowed_mailboxes_count = len(allowed_mailboxes)
+    
+    logger.info(
+        "MS Graph adapter creation diagnostics: "
+        f"CALENDAR_PROVIDER={calendar_provider}, "
+        f"has_tenant_id={has_tenant_id}, "
+        f"has_client_id={has_client_id}, "
+        f"has_client_secret={has_client_secret}, "
+        f"has_user_email={has_user_email}, "
+        f"has_allowed_mailbox_group={has_allowed_mailbox_group}, "
+        f"has_allowed_mailboxes={has_allowed_mailboxes}, "
+        f"allowed_mailboxes_count={allowed_mailboxes_count}"
+    )
+    
     # Support both MS_* and AZURE_* naming conventions
     tenant_id = (os.getenv("MS_TENANT_ID") or os.getenv("AZURE_TENANT_ID") or "").strip()
     client_id = (os.getenv("MS_CLIENT_ID") or os.getenv("AZURE_CLIENT_ID") or "").strip()
     client_secret = (os.getenv("MS_CLIENT_SECRET") or os.getenv("AZURE_CLIENT_SECRET") or "").strip()
     user_email = (os.getenv("MS_USER_EMAIL") or "").strip() or None
     allowed_mailbox_group = (os.getenv("ALLOWED_MAILBOX_GROUP") or "").strip() or None
-    
-    # Load allowed mailboxes from config
-    config = load_config()
-    allowed_mailboxes = config.allowed_mailboxes
 
     logger.debug(f"Creating MS Graph adapter - tenant_id: {tenant_id[:8]}...{tenant_id[-8:] if len(tenant_id) > 16 else tenant_id}, client_id: {client_id[:8]}...{client_id[-8:] if len(client_id) > 16 else client_id}")
 

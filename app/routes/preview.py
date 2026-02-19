@@ -157,8 +157,14 @@ async def _render_html_preview(
     mailbox: Optional[str]
 ) -> HTMLResponse:
     """Internal function to render HTML preview."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
     # Build context using shared context builder
+    logger.info(f"Building digest context: source={source}, date={date}, mailbox={mailbox}")
     context = build_digest_context_with_provider(source=source, date=date, exec_name=exec_name, mailbox=mailbox)
+    meeting_count = len(context.get("meetings", []))
+    logger.info(f"Context built: source={context.get('source')}, meeting_count={meeting_count}, mailbox={mailbox}")
 
     # Add request to context for template rendering
     context["request"] = request
