@@ -37,6 +37,13 @@ def get_profile(profile_id: Optional[str] = None, mailbox: Optional[str] = None)
         profile_data = _find_profile_by_mailbox(profiles_data, mailbox)
         if profile_data:
             return _build_profile_from_data(profile_data, f"mailbox:{mailbox}")
+        # If no exact match found, create a profile with exec_name derived from mailbox
+        # This ensures the heading matches the mailbox user even if no profile exists
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"No profile found for mailbox {mailbox}, deriving exec_name from mailbox")
+        derived_exec_name = _derive_exec_name_from_mailbox(mailbox)
+        return _build_profile_for_mailbox(mailbox, derived_exec_name)
 
     # Fall back to profile_id lookup
     if profile_id is None:
@@ -54,6 +61,8 @@ def get_profile(profile_id: Optional[str] = None, mailbox: Optional[str] = None)
 def _find_profile_by_mailbox(profiles_data: Dict[str, Any], mailbox: str) -> Optional[Dict[str, Any]]:
     """
     Find a profile by mailbox address.
+    
+    Performs case-insensitive comparison and normalizes mailboxes before matching.
 
     Args:
         profiles_data: All profiles data from JSON
@@ -62,12 +71,18 @@ def _find_profile_by_mailbox(profiles_data: Dict[str, Any], mailbox: str) -> Opt
     Returns:
         Profile data if found, None otherwise
     """
+    # Normalize mailbox for comparison (lowercase, strip whitespace)
+    mailbox_normalized = mailbox.strip().lower() if mailbox else ""
+    
     for profile_id, profile_data in profiles_data.items():
-        # Check if this profile has a mailbox mapping
-        if "mailbox" in profile_data and profile_data["mailbox"] == mailbox:
-            return profile_data
-        # Also check if the profile_id itself is a mailbox
-        if profile_id == mailbox:
+        # Check if this profile has a mailbox mapping (case-insensitive)
+        if "mailbox" in profile_data:
+            profile_mailbox_normalized = profile_data["mailbox"].strip().lower()
+            if profile_mailbox_normalized == mailbox_normalized:
+                return profile_data
+        # Also check if the profile_id itself is a mailbox (case-insensitive)
+        profile_id_normalized = profile_id.strip().lower()
+        if profile_id_normalized == mailbox_normalized:
             return profile_data
     return None
 
@@ -96,6 +111,67 @@ def _build_profile_from_data(profile_data: Dict[str, Any], profile_id: str) -> E
     profile_data.setdefault("company_aliases", {})
 
     return ExecProfile(**profile_data)
+
+
+def _derive_exec_name_from_mailbox(mailbox: str) -> str:
+    """
+    Derive a display name from a mailbox email address.
+    
+    Examples:
+        chintan.panchal@rpck.com -> "Chintan Panchal"
+        sorum.crofts@rpck.com -> "Sorum Crofts"
+        john.doe@example.com -> "John Doe"
+        jane@example.com -> "Jane"
+    
+    Args:
+        mailbox: Email address
+        
+    Returns:
+        Formatted name derived from email local part
+    """
+    if not mailbox or "@" not in mailbox:
+        return "User"
+    
+    # Extract local part (before @)
+    local_part = mailbox.split("@")[0].strip()
+    
+    # Split by dots and capitalize each part
+    parts = local_part.split(".")
+    if len(parts) >= 2:
+        # Format: firstname.lastname -> "Firstname Lastname"
+        formatted = " ".join(part.capitalize() for part in parts if part)
+        return formatted
+    else:
+        # Single part: just capitalize
+        return local_part.capitalize()
+
+
+def _build_profile_for_mailbox(mailbox: str, exec_name: str) -> ExecProfile:
+    """
+    Build a profile for a mailbox when no profile exists.
+    
+    Uses default settings but with the derived exec_name.
+    
+    Args:
+        mailbox: Mailbox email address
+        exec_name: Derived executive name
+        
+    Returns:
+        ExecProfile with default settings and custom exec_name
+    """
+    return ExecProfile(
+        id=f"mailbox:{mailbox}",
+        exec_name=exec_name,
+        mailbox=mailbox,
+        default_recipients=[mailbox],
+        sections_order=["company", "news", "talking_points", "smart_questions"],
+        max_items={
+            "news": 5,
+            "talking_points": 3,
+            "smart_questions": 3
+        },
+        company_aliases={}
+    )
 
 
 def _get_default_profile(profile_id: str = "default") -> ExecProfile:

@@ -20,7 +20,7 @@
   "chintan": {
     "id": "chintan",
     "exec_name": "Chintan Panchal",
-    "mailbox": "chintan@rpck.com",
+    "mailbox": "chintan.panchal@rpck.com",
     "default_recipients": ["chintan@rpck.com", "carolyn@rpck.com"],
     "sections_order": ["company", "news", "talking_points", "smart_questions"],
     "max_items": {

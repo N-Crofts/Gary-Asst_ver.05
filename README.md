@@ -264,6 +264,60 @@ from dotenv import load_dotenv; load_dotenv()
 
 ---
 
+## Required Environment Variables for ms_graph Preview (Fly Deployment)
+
+When deploying to Fly.io with `CALENDAR_PROVIDER=ms_graph`, the following environment variables must be set as Fly secrets:
+
+### Required:
+
+- **`CALENDAR_PROVIDER=ms_graph`** - Enables Microsoft Graph calendar provider
+- **`AZURE_TENANT_ID`** (or `MS_TENANT_ID`) - Azure AD tenant ID
+- **`AZURE_CLIENT_ID`** (or `MS_CLIENT_ID`) - Azure AD application client ID
+- **`AZURE_CLIENT_SECRET`** (or `MS_CLIENT_SECRET`) - Azure AD application client secret
+- **`MS_USER_EMAIL`** - Default user email for calendar access
+- **`ALLOWED_MAILBOXES`** - Comma-separated list of mailbox addresses (lowercase, e.g., `user1@domain.com,user2@domain.com`)
+
+### Optional (depending on usage):
+
+- **`ALLOWED_MAILBOX_GROUP`** - Only if using group expansion mode (fetches calendars for all members of a security group)
+
+### Setting Fly Secrets:
+
+```bash
+fly secrets set -a gary-asst CALENDAR_PROVIDER=ms_graph
+fly secrets set -a gary-asst AZURE_TENANT_ID=your-tenant-id
+fly secrets set -a gary-asst AZURE_CLIENT_ID=your-client-id
+fly secrets set -a gary-asst AZURE_CLIENT_SECRET=your-client-secret
+fly secrets set -a gary-asst MS_USER_EMAIL=default-user@domain.com
+fly secrets set -a gary-asst ALLOWED_MAILBOXES=user1@domain.com,user2@domain.com
+```
+
+### Verification Checklist:
+
+After deployment:
+
+1. **Verify secrets are set:**
+   ```bash
+   fly secrets list -a gary-asst
+   ```
+   Confirm `ALLOWED_MAILBOXES` is present and contains mailbox addresses.
+
+2. **Check health endpoint:**
+   ```bash
+   curl https://gary-asst.fly.dev/health
+   ```
+   Should return: `{"status":"ok"}`
+
+3. **Test preview endpoint:**
+   ```bash
+   curl "https://gary-asst.fly.dev/digest/preview?source=live&date=2026-02-18&mailbox=user1@domain.com"
+   ```
+   Should render meetings (not "No meetings for this date" or 500 errors).
+
+**Note:** If `ALLOWED_MAILBOXES` is missing or empty, the adapter will fail fast with a clear 503 error: "MS Graph configuration missing: ALLOWED_MAILBOXES must be set in production."
+
+---
+
 ## 🧹 Pre-commit status
 
 Your `.pre-commit-config.yaml` currently has:

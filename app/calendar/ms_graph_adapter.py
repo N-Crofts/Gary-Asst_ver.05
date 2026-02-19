@@ -715,6 +715,14 @@ def create_ms_graph_adapter() -> MSGraphAdapter:
         f"allowed_mailboxes_count={allowed_mailboxes_count}"
     )
     
+    # Warn if allowed_mailboxes is empty
+    if not has_allowed_mailboxes:
+        logger.warning(
+            "ALLOWED_MAILBOXES is empty or not set. "
+            "Set ALLOWED_MAILBOXES environment variable (comma-separated mailbox addresses) "
+            "to enable mailbox access. Without this, all mailbox access will be denied."
+        )
+    
     # Support both MS_* and AZURE_* naming conventions
     tenant_id = (os.getenv("MS_TENANT_ID") or os.getenv("AZURE_TENANT_ID") or "").strip()
     client_id = (os.getenv("MS_CLIENT_ID") or os.getenv("AZURE_CLIENT_ID") or "").strip()
@@ -731,10 +739,22 @@ def create_ms_graph_adapter() -> MSGraphAdapter:
         )
 
     # Either user_email or allowed_mailbox_group must be provided
+    # Note: ALLOWED_MAILBOX_GROUP is only used for group expansion mode.
+    # ALLOWED_MAILBOXES (loaded above) is the enforcement allowlist that controls which mailboxes can be accessed.
     if not user_email and not allowed_mailbox_group:
         raise HTTPException(
             status_code=503,
-            detail="MS Graph configuration missing: Either MS_USER_EMAIL or ALLOWED_MAILBOX_GROUP must be provided"
+            detail="MS Graph configuration missing: Either MS_USER_EMAIL or ALLOWED_MAILBOX_GROUP must be provided. "
+                   "Note: ALLOWED_MAILBOX_GROUP is only for group expansion mode. "
+                   "ALLOWED_MAILBOXES must also be set to control mailbox access."
+        )
+    
+    # Fail fast if allowed_mailboxes is empty (prevents downstream ValueError and 500 errors)
+    if not has_allowed_mailboxes:
+        raise HTTPException(
+            status_code=503,
+            detail="MS Graph configuration missing: ALLOWED_MAILBOXES must be set in production. "
+                   "Set ALLOWED_MAILBOXES environment variable (comma-separated mailbox addresses, e.g., 'user1@domain.com,user2@domain.com')."
         )
 
     return MSGraphAdapter(
