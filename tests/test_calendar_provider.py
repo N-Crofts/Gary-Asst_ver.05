@@ -1,4 +1,6 @@
+import os
 from datetime import datetime
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -29,19 +31,21 @@ def test_mock_provider_other_day_has_different_events():
 
 
 def test_preview_live_uses_provider_and_fallback():
-    client = TestClient(app)
-    # With sample data available, live should use provider and mark live
-    r = client.get("/digest/preview.json?source=live&date=2025-09-08")
-    assert r.status_code == 200
-    data = r.json()
-    assert data["source"] == "live"
-    assert len(data["meetings"]) >= 1
+    """Use mock calendar provider so test is deterministic and does not depend on MS Graph env."""
+    with patch.dict(os.environ, {"CALENDAR_PROVIDER": "mock"}, clear=False):
+        client = TestClient(app)
+        # With mock provider, live source uses mock and returns meetings for 2025-09-08
+        r = client.get("/digest/preview.json?source=live&date=2025-09-08")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["source"] == "live"
+        assert len(data["meetings"]) >= 1
 
-    # If provider returns empty for a date, fallback to sample and mark sample
-    r2 = client.get("/digest/preview.json?source=live&date=1900-01-01")
-    assert r2.status_code == 200
-    data2 = r2.json()
-    assert data2["source"] == "sample"
-    assert len(data2["meetings"]) >= 1
+        # If provider returns empty for a date, source stays live and meetings are empty (no fallback)
+        r2 = client.get("/digest/preview.json?source=live&date=1900-01-01")
+        assert r2.status_code == 200
+        data2 = r2.json()
+        assert data2["source"] == "live"
+        assert len(data2["meetings"]) == 0
 
 

@@ -638,12 +638,8 @@ class MSGraphAdapter:
         # Determine which mailbox to use (default fallback)
         mailbox_to_use = self.user_email
         if not mailbox_to_use:
-            # Try MAILBOX_ADDRESS as fallback
+            # Try MAILBOX_ADDRESS as fallback (only used when not in group mode)
             mailbox_to_use = os.getenv("MAILBOX_ADDRESS")
-        
-        # Validate default mailbox if using it
-        if mailbox_to_use:
-            self._validate_mailbox_access(mailbox_to_use)
 
         # If group-based access is configured, fetch events for all group members
         # Note: Group members are validated individually in _fetch_events_for_user
@@ -661,6 +657,10 @@ class MSGraphAdapter:
                 except ValueError as e:
                     # Mailbox not in allowlist - skip this member
                     logger.warning(f"Skipping group member {member_email}: {e}")
+                    continue
+                except HTTPException as e:
+                    # 403/404 or other HTTP error for this member - skip and continue with others
+                    logger.warning(f"Skipping group member {member_email}: {e.status_code} {e.detail}")
                     continue
 
         # If single user is configured, fetch events for that user
@@ -729,6 +729,10 @@ def create_ms_graph_adapter() -> MSGraphAdapter:
     client_secret = (os.getenv("MS_CLIENT_SECRET") or os.getenv("AZURE_CLIENT_SECRET") or "").strip()
     user_email = (os.getenv("MS_USER_EMAIL") or "").strip() or None
     allowed_mailbox_group = (os.getenv("ALLOWED_MAILBOX_GROUP") or "").strip() or None
+
+    # When group is set, use group-access mode only: user_email must be None even if MS_USER_EMAIL is set
+    if allowed_mailbox_group:
+        user_email = None
 
     logger.debug(f"Creating MS Graph adapter - tenant_id: {tenant_id[:8]}...{tenant_id[-8:] if len(tenant_id) > 16 else tenant_id}, client_id: {client_id[:8]}...{client_id[-8:] if len(client_id) > 16 else client_id}")
 
