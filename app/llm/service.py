@@ -36,105 +36,15 @@ class LLMClient(ABC):
 
 
 class StubLLMClient(LLMClient):
-    """Deterministic stub LLM client for testing and when LLM is disabled."""
+    """Stub LLM client for testing and when LLM is disabled. Returns no placeholder filler."""
 
     def generate_talking_points(self, meeting: Dict[str, Any]) -> List[str]:
-        """Generate deterministic talking points based on meeting data."""
-        subject = meeting.get("subject", "").lower()
-        company_name = self._extract_company_name(meeting).lower()
-
-        points = []
-
-        # Company-specific talking points
-        if "acme" in company_name:
-            points.extend([
-                "Confirm Q4 fund-formation timeline & counsel needs.",
-                "Explore co-marketing with GridFlow case study.",
-                "Flag cross-border structuring considerations early."
-            ])
-        elif "techcorp" in company_name:
-            points.extend([
-                "Review recent product launches and market positioning.",
-                "Discuss potential partnership opportunities.",
-                "Align on next quarter's strategic priorities."
-            ])
-        elif "gridflow" in company_name:
-            points.extend([
-                "Update on Series B progress and investor interest.",
-                "Review technical roadmap and scaling challenges.",
-                "Explore potential RPCK client introductions."
-            ])
-        else:
-            # Generic talking points based on subject
-            if "portfolio" in subject:
-                points.extend([
-                    "Review portfolio performance and strategic direction.",
-                    "Discuss upcoming investment opportunities.",
-                    "Align on portfolio company support needs."
-                ])
-            elif "intro" in subject:
-                points.extend([
-                    "Understand company background and current stage.",
-                    "Explore potential collaboration opportunities.",
-                    "Discuss RPCK services and value proposition."
-                ])
-            else:
-                points.extend([
-                    "Review meeting objectives and desired outcomes.",
-                    "Discuss next steps and follow-up timeline.",
-                    "Explore potential partnership opportunities."
-                ])
-
-        return points[:3]  # Limit to 3 points
+        """Return empty list; no hardcoded placeholder content."""
+        return []
 
     def generate_smart_questions(self, meeting: Dict[str, Any]) -> List[str]:
-        """Generate deterministic smart questions based on meeting data."""
-        subject = meeting.get("subject", "").lower()
-        company_name = self._extract_company_name(meeting).lower()
-
-        questions = []
-
-        # Company-specific questions
-        if "acme" in company_name:
-            questions.extend([
-                "What milestones unlock the next capital call?",
-                "Any portfolio companies evaluating EU/US entity changes in 2025?",
-                "Where is the biggest regulatory friction next 2 quarters?"
-            ])
-        elif "techcorp" in company_name:
-            questions.extend([
-                "What's driving your recent growth trajectory?",
-                "How are you positioning against larger competitors?",
-                "What legal challenges are you anticipating this year?"
-            ])
-        elif "gridflow" in company_name:
-            questions.extend([
-                "What's the timeline for your Series B close?",
-                "How are you handling international expansion?",
-                "Which RPCK practice areas would be most valuable?"
-            ])
-        else:
-            # Generic questions based on subject
-            if "portfolio" in subject:
-                questions.extend([
-                    "What are your key portfolio performance metrics?",
-                    "Which sectors are you most excited about?",
-                    "How can RPCK support your portfolio companies?"
-                ])
-            elif "intro" in subject:
-                questions.extend([
-                    "What stage is your company at currently?",
-                    "What are your biggest legal challenges?",
-                    "How can RPCK help accelerate your growth?"
-                ])
-            else:
-                questions.extend([
-                    "What are your top priorities for this quarter?",
-                    "What challenges are you facing that we could help with?",
-                    "How do you see the market evolving in your space?"
-                ])
-
-        return questions[:3]  # Limit to 3 questions
+        """Return empty list; no hardcoded placeholder content."""
+        return []
 
     def rerank_person_results(self, prompt: str) -> str:
         """Return deterministic ranking for testing."""

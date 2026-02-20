@@ -97,7 +97,12 @@ def _convert_meeting_to_model(meeting: dict) -> MeetingModel:
         company=company,
         news=news,
         talking_points=meeting.get("talking_points", []),
-        smart_questions=meeting.get("smart_questions", [])
+        smart_questions=meeting.get("smart_questions", []),
+        context_summary=meeting.get("context_summary"),
+        industry_signal=meeting.get("industry_signal"),
+        strategic_angles=meeting.get("strategic_angles", []),
+        high_leverage_questions=meeting.get("high_leverage_questions", []),
+        research_trace=meeting.get("research_trace"),
     )
 
 

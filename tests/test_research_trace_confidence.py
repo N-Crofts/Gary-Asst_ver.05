@@ -139,7 +139,7 @@ STUB_RAW_PERSON_NO_ORG_FALLBACK_B = [
 
 
 class RecordingProvider(ResearchProvider):
-    """Records last topic passed to get_research (for assertion only; not logged)."""
+    """Records last topic passed to get_research. Returns sources with common stub domains so off-target guardrail passes."""
 
     def __init__(self):
         self.call_count = 0
@@ -148,7 +148,15 @@ class RecordingProvider(ResearchProvider):
     def get_research(self, topic: str):
         self.call_count += 1
         self.last_topic = topic
-        return {"summary": "x", "key_points": [], "sources": []}
+        # Include stub-meeting domains so result_domain_match passes (off-target guardrail)
+        return {
+            "summary": "x",
+            "key_points": [],
+            "sources": [
+                {"title": "T", "url": "https://acmecapital.com/1"},
+                {"title": "T2", "url": "https://betacorp.com/2"},
+            ],
+        }
 
 
 def test_ambiguous_short_domain_with_person_uses_fallback_person_query(monkeypatch):
@@ -176,7 +184,7 @@ def test_ambiguous_short_domain_with_person_uses_fallback_person_query(monkeypat
 
 
 def test_person_only_no_org_context_skipped_low_confidence(monkeypatch):
-    """Person anchor with generic domain and no org context is skipped with low_confidence_anchor."""
+    """Person with only consumer domain (gmail.com) is skipped with no_anchor (we ignore consumer domains for org anchor)."""
     monkeypatch.setenv("RESEARCH_ENABLED", "true")
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setenv("RESEARCH_CONFIDENCE_MIN", "0.70")
@@ -191,9 +199,16 @@ def test_person_only_no_org_context_skipped_low_confidence(monkeypatch):
                 research_budget=budget,
             )
     assert ctx["research"]["summary"] == ""
-    trace = ctx.get("research_trace", {})
-    assert trace.get("outcome") == "skipped"
-    assert trace.get("skip_reason") == SkipReason.LOW_CONFIDENCE_ANCHOR.value
+    traces_by_meeting = ctx.get("research_traces_by_meeting_id", {})
+    meeting_trace = None
+    for trace in traces_by_meeting.values():
+        if trace.get("skip_reason") in (SkipReason.NO_ANCHOR.value, SkipReason.LOW_CONFIDENCE_ANCHOR.value):
+            meeting_trace = trace
+            break
+    assert meeting_trace is not None, "Expected to find a meeting skipped (no_anchor or low_confidence_anchor)"
+    assert meeting_trace.get("outcome") == "skipped"
+    # With only gmail.com we now get no_anchor (consumer domains excluded)
+    assert meeting_trace.get("skip_reason") == SkipReason.NO_ANCHOR.value
     assert provider.call_count == 0
 
 
@@ -212,14 +227,22 @@ def test_meeting_marked_test_skipped(monkeypatch):
                 research_budget=budget,
             )
     assert ctx["research"]["summary"] == ""
-    trace = ctx.get("research_trace", {})
-    assert trace.get("outcome") == "skipped"
-    assert trace.get("skip_reason") == SkipReason.MEETING_MARKED_TEST.value
+    # Check per-meeting traces (new per-meeting research model)
+    traces_by_meeting = ctx.get("research_traces_by_meeting_id", {})
+    # Find the trace for the meeting (should be skipped)
+    meeting_trace = None
+    for trace in traces_by_meeting.values():
+        if trace.get("skip_reason") == SkipReason.MEETING_MARKED_TEST.value:
+            meeting_trace = trace
+            break
+    assert meeting_trace is not None, "Expected to find a meeting skipped with meeting_marked_test"
+    assert meeting_trace.get("outcome") == "skipped"
+    assert meeting_trace.get("skip_reason") == SkipReason.MEETING_MARKED_TEST.value
     assert provider.call_count == 0
 
 
 def test_budget_still_enforced_one_call_max(monkeypatch):
-    """MAX_TAVILY_CALLS_PER_REQUEST is still 1; at most one provider call."""
+    """MAX_TAVILY_CALLS_PER_REQUEST is now 8; budget enforces at most 8 provider calls."""
     monkeypatch.setenv("RESEARCH_ENABLED", "true")
     monkeypatch.setenv("APP_ENV", "production")
     provider = RecordingProvider()
@@ -231,7 +254,8 @@ def test_budget_still_enforced_one_call_max(monkeypatch):
             allow_research=True,
             research_budget=budget,
         )
-    assert provider.call_count <= 1
+    # Budget is now 8 calls max (changed from 1)
+    assert provider.call_count <= 8
 
 
 # ---- Confidence helpers ----
@@ -286,12 +310,20 @@ def test_test_meeting_override_skipped_provider_not_called(monkeypatch):
                 research_budget=budget,
             )
     assert ctx["research"]["summary"] == ""
-    trace = ctx.get("research_trace", {})
-    assert trace.get("outcome") == "skipped"
-    assert trace.get("skip_reason") == SkipReason.MEETING_MARKED_TEST.value
-    assert trace.get("sources_count", 0) == 0
-    assert trace.get("query_hash") in (None, "")
-    assert trace.get("query_len") in (None, 0)
+    # Check per-meeting traces (new per-meeting research model)
+    traces_by_meeting = ctx.get("research_traces_by_meeting_id", {})
+    # Find the trace for the meeting (should be skipped)
+    meeting_trace = None
+    for trace in traces_by_meeting.values():
+        if trace.get("skip_reason") == SkipReason.MEETING_MARKED_TEST.value:
+            meeting_trace = trace
+            break
+    assert meeting_trace is not None, "Expected to find a meeting skipped with meeting_marked_test"
+    assert meeting_trace.get("outcome") == "skipped"
+    assert meeting_trace.get("skip_reason") == SkipReason.MEETING_MARKED_TEST.value
+    assert meeting_trace.get("sources_count", 0) == 0
+    assert meeting_trace.get("query_hash") in (None, "")
+    assert meeting_trace.get("query_len") in (None, 0)
     assert provider.call_count == 0
 
 
@@ -326,7 +358,15 @@ def test_successful_research_has_query_hash_and_len(monkeypatch):
     monkeypatch.setenv("RESEARCH_ENABLED", "true")
     monkeypatch.setenv("APP_ENV", "production")
     provider = RecordingProvider()
-    provider.get_research = lambda topic: {"summary": "x", "key_points": ["a"], "sources": [{"title": "T", "url": "https://example.com/1"}]}
+    # Sources must contain stub meeting domains (acmecapital.com, betacorp.com) for off-target check
+    provider.get_research = lambda topic: {
+        "summary": "x",
+        "key_points": ["a"],
+        "sources": [
+            {"title": "T", "url": "https://acmecapital.com/1"},
+            {"title": "T2", "url": "https://betacorp.com/2"},
+        ],
+    }
     budget = ResearchBudget(MAX_TAVILY_CALLS_PER_REQUEST)
     with patch("app.research.selector.select_research_provider", return_value=provider):
         from app.rendering.context_builder import build_digest_context_with_provider
@@ -335,10 +375,18 @@ def test_successful_research_has_query_hash_and_len(monkeypatch):
             allow_research=True,
             research_budget=budget,
         )
-    trace = ctx.get("research_trace", {})
-    assert trace.get("outcome") == "success"
-    assert len(trace.get("query_hash", "")) == 10
-    assert (trace.get("query_len") or 0) > 0
+    # Check per-meeting traces (new per-meeting research model)
+    traces_by_meeting = ctx.get("research_traces_by_meeting_id", {})
+    # Find a successful trace
+    meeting_trace = None
+    for trace in traces_by_meeting.values():
+        if trace.get("outcome") == "success":
+            meeting_trace = trace
+            break
+    assert meeting_trace is not None, "Expected to find at least one successful research trace"
+    assert meeting_trace.get("outcome") == "success"
+    assert len(meeting_trace.get("query_hash", "")) == 10
+    assert (meeting_trace.get("query_len") or 0) > 0
 
 
 def test_skipped_research_has_no_query_hash_or_zero_len(monkeypatch):
@@ -394,9 +442,17 @@ def test_primary_fails_fallback_passes_exactly_one_call(monkeypatch):
                 research_budget=budget,
             )
     assert provider.call_count == 1
-    trace = ctx.get("research_trace", {})
-    assert trace.get("outcome") in ("success", "error")
-    assert trace.get("query_len", 0) > 0
+    # Check per-meeting traces (new per-meeting research model)
+    traces_by_meeting = ctx.get("research_traces_by_meeting_id", {})
+    # Find a successful/error trace
+    meeting_trace = None
+    for trace in traces_by_meeting.values():
+        if trace.get("outcome") in ("success", "error"):
+            meeting_trace = trace
+            break
+    assert meeting_trace is not None, "Expected to find at least one research trace with success or error"
+    assert meeting_trace.get("outcome") in ("success", "error")
+    assert meeting_trace.get("query_len", 0) > 0
 
 
 def test_both_primary_and_fallback_eligible_still_one_call(monkeypatch):

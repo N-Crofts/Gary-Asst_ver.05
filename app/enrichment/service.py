@@ -264,6 +264,10 @@ def enrich_meetings(meetings: List[Dict[str, Any]], now: float | None = None, ti
                 talking_points=talking_points,
                 smart_questions=smart_questions,
                 people_intel=people_intel,
+                context_summary=m.get("context_summary"),
+                industry_signal=m.get("industry_signal"),
+                strategic_angles=m.get("strategic_angles", []),
+                high_leverage_questions=m.get("high_leverage_questions", []),
             )
         )
 

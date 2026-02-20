@@ -310,11 +310,9 @@ class TestPartialDataTemplateRendering:
             assert response.status_code == 200
             html_content = response.text
 
-            # Check for gentle empty state styling (more flexible)
-            assert 'Not available' in html_content
-            assert 'Recent news:' in html_content or 'Recent news' in html_content
-            assert 'Talking points:' in html_content or 'Talking points' in html_content
-            assert 'Smart questions:' in html_content or 'Smart questions' in html_content
+            # Check for Context Snapshot and empty state when no external context
+            assert 'Context Snapshot' in html_content
+            assert 'No external context available' in html_content or 'Recent developments' in html_content
 
 
 class TestPartialDataEdgeCases:

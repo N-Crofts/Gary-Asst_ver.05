@@ -14,16 +14,12 @@ SAMPLE_MEETINGS = [
             {"title": "GridFlow B led by Acme; overlap with RPCK client", "url": "https://example.com/gridflow-b"},
             {"title": "Acme announces climate infrastructure partnership", "url": "https://example.com/infra-partnership"},
         ],
-        "talking_points": [
-            "Confirm Q4 fund-formation timeline & counsel needs.",
-            "Explore co-marketing with GridFlow case study.",
-            "Flag cross-border structuring considerations early.",
-        ],
-        "smart_questions": [
-            "What milestones unlock the next capital call?",
-            "Any portfolio companies evaluating EU/US entity changes in 2025?",
-            "Where is the biggest regulatory friction next 2 quarters?",
-        ],
+        "talking_points": [],
+        "smart_questions": [],
+        "context_summary": None,
+        "industry_signal": None,
+        "strategic_angles": [],
+        "high_leverage_questions": [],
     }
 ]
 

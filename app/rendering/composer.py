@@ -43,6 +43,11 @@ def compose_digest_model(
                 "news": md.get("news", []),
                 "talking_points": md.get("talking_points", []),
                 "smart_questions": md.get("smart_questions", []),
+                "context_summary": md.get("context_summary"),
+                "industry_signal": md.get("industry_signal"),
+                "strategic_angles": md.get("strategic_angles", []),
+                "high_leverage_questions": md.get("high_leverage_questions", []),
+                "research_trace": md.get("research_trace"),
             }
         )
 

@@ -38,8 +38,7 @@ def test_render_contains_links_headings():
         }
     )
     assert html.count("<a ") >= 3
-    assert "Talking points" in html
-    assert "Smart questions" in html
+    assert "Context Snapshot" in html
 
 
 def test_missing_env_for_smtp(monkeypatch):

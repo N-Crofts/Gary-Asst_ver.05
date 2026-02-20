@@ -42,8 +42,11 @@ def render_plaintext(context: Dict[str, Any]) -> str:
             attendees = meeting_dict.get("attendees", [])
             company = meeting_dict.get("company")
             news = meeting_dict.get("news", [])
-            talking_points = meeting_dict.get("talking_points", [])
-            smart_questions = meeting_dict.get("smart_questions", [])
+            context_summary = meeting_dict.get("context_summary")
+            industry_signal = meeting_dict.get("industry_signal")
+            strategic_angles = meeting_dict.get("strategic_angles", [])
+            high_leverage_questions = meeting_dict.get("high_leverage_questions", [])
+            research_trace = meeting_dict.get("research_trace")
             memory = meeting_dict.get("memory")
         else:
             # Regular dict
@@ -53,8 +56,11 @@ def render_plaintext(context: Dict[str, Any]) -> str:
             attendees = meeting.get("attendees", [])
             company = meeting.get("company")
             news = meeting.get("news", [])
-            talking_points = meeting.get("talking_points", [])
-            smart_questions = meeting.get("smart_questions", [])
+            context_summary = meeting.get("context_summary")
+            industry_signal = meeting.get("industry_signal")
+            strategic_angles = meeting.get("strategic_angles", [])
+            high_leverage_questions = meeting.get("high_leverage_questions", [])
+            research_trace = meeting.get("research_trace")
             memory = meeting.get("memory")
 
         lines.append(f"Meeting {i}: {subject}")
@@ -107,34 +113,66 @@ def render_plaintext(context: Dict[str, Any]) -> str:
                     lines.append(f"  {one_liner}")
                 lines.append("")
 
-        # News
-        if news:
-            lines.append("Recent news:")
-            for item in news:
-                if isinstance(item, dict):
-                    title = item.get("title", "")
-                    url = item.get("url", "")
-                    if title and url:
-                        lines.append(f"  • {title} ({url})")
-                    elif title:
-                        lines.append(f"  • {title}")
-                else:
-                    # Back-compat for plain strings
-                    lines.append(f"  • {item}")
+        # 1) Context Snapshot
+        has_context = context_summary or news or industry_signal or strategic_angles or high_leverage_questions
+        lines.append("Context Snapshot:")
+        if has_context:
+            if context_summary:
+                lines.append(f"  {context_summary}")
+            if news:
+                lines.append("  Recent developments:")
+                for item in news:
+                    if isinstance(item, dict):
+                        title = item.get("title", "")
+                        url = item.get("url", "")
+                        if title and url:
+                            lines.append(f"    • {title} ({url})")
+                        elif title:
+                            lines.append(f"    • {title}")
+                    else:
+                        lines.append(f"    • {item}")
+            if industry_signal:
+                lines.append(f"  Industry signal: {industry_signal}")
+        else:
+            lines.append("  No external context available")
+        # Dev-only anchor diagnostics (non-PII)
+        app_env = context.get("app_env", "").strip().lower()
+        enable_research_dev = context.get("enable_research_dev", False)
+        if research_trace and (app_env == "development" or enable_research_dev):
+            anchor_type = research_trace.get("anchor_type") or "—"
+            primary_domain = research_trace.get("primary_domain") or "—"
+            dm = research_trace.get("domain_match_passed")
+            domain_match_str = "true" if dm is True else ("false" if dm is False else "—")
+            match_url = (research_trace.get("domain_match_url") or "—") if dm is True else "—"
+            top_hosts = research_trace.get("top_source_hosts") or []
+            hosts_str = ",".join(top_hosts[:3]) if top_hosts else "—"
+            part = f"  [Dev] Anchor={anchor_type} | domain={primary_domain} | domain_match={domain_match_str} | match_url={match_url} | hosts={hosts_str}"
+            em = research_trace.get("entity_match_passed")
+            if em is not None:
+                part += f" | entity_match={'true' if em else 'false'}"
+            if research_trace.get("skip_reason"):
+                part += f" | skip={research_trace.get('skip_reason')}"
+            if research_trace.get("mismatch_reason"):
+                part += f" | mismatch={research_trace.get('mismatch_reason')}"
+            if research_trace.get("retry_used"):
+                part += " | retry=true"
+            if research_trace.get("outcome") == "error":
+                part += " | outcome=error"
+            lines.append(part)
+        lines.append("")
+
+        # 2) Strategic Angles (only if data; no filler)
+        if strategic_angles:
+            lines.append("Strategic Angles:")
+            for a in strategic_angles:
+                lines.append(f"  • {a}")
             lines.append("")
 
-        # Talking points
-        if talking_points:
-            lines.append("Talking points (prioritize):")
-            for j, point in enumerate(talking_points, 1):
-                lines.append(f"  {j}. {point}")
-            lines.append("")
-
-        # Smart questions
-        if smart_questions:
-            lines.append("Smart questions:")
-            for j, question in enumerate(smart_questions, 1):
-                lines.append(f"  {j}. {question}")
+        # 3) High-Leverage Questions (only if data; no filler)
+        if high_leverage_questions:
+            lines.append("High-Leverage Questions:")
+            for q in high_leverage_questions:
+                lines.append(f"  • {q}")
             lines.append("")
 
         # Memory (Recent with them)

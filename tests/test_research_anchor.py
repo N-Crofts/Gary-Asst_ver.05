@@ -1,7 +1,12 @@
 """Unit tests for research anchor helpers and anchor prioritization."""
 import pytest
 
-from app.research.anchor_utils import extract_org_from_subject, org_from_email_domain
+from app.research.anchor_utils import (
+    extract_org_from_subject,
+    org_from_email_domain,
+    looks_like_personal_domain,
+    looks_like_assistant_domain,
+)
 
 
 # ---- extract_org_from_subject ----
@@ -93,3 +98,37 @@ def test_build_context_stub_uses_org_anchor_when_subject_has_on_phrase(monkeypat
 def test_anchor_organizer_domain_helper_cms_induslaw():
     """org_from_email_domain('cms-induslaw.com') => Induslaw (cms- prefix dropped)."""
     assert org_from_email_domain("cms-induslaw.com") == "Induslaw"
+
+
+# ---- looks_like_personal_domain / looks_like_assistant_domain ----
+
+def test_looks_like_personal_domain_me_ke():
+    """hussein.me.ke matches .me.<cc> pattern -> personal."""
+    assert looks_like_personal_domain("hussein.me.ke") is True
+
+
+def test_looks_like_personal_domain_short_alphabetic():
+    """Short alphabetic segment not in overrides -> personal."""
+    assert looks_like_personal_domain("bob.example.com") is True
+
+
+def test_looks_like_personal_domain_known_org_not_personal():
+    """Known org segment (e.g. csa, gatesfoundation) -> not personal."""
+    assert looks_like_personal_domain("csa.org") is False
+    assert looks_like_personal_domain("gatesfoundation.org") is False
+
+
+def test_looks_like_assistant_domain_chiefofstaff():
+    """chiefofstaff in segment -> assistant domain."""
+    assert looks_like_assistant_domain("vanninchiefofstaff.com") is True
+
+
+def test_looks_like_assistant_domain_assistant():
+    """assistant in segment -> assistant domain."""
+    assert looks_like_assistant_domain("myassistant.io") is True
+
+
+def test_looks_like_assistant_domain_org_not_assistant():
+    """Real org domains -> not assistant."""
+    assert looks_like_assistant_domain("gatesfoundation.org") is False
+    assert looks_like_assistant_domain("rethinkimpact.com") is False
