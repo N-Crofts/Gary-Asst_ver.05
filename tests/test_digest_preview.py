@@ -247,3 +247,41 @@ class TestDigestPreview:
             assert data["source"] == "live"
             assert len(data["meetings"]) == 1
             assert data["meetings"][0]["subject"] == "Live Meeting Test"
+
+
+class TestResearchOverrideQueryParam:
+    """Staging-only research=1 override: prod ignores param; non-prod respects it."""
+
+    def test_prod_and_research_param_returns_false(self):
+        """APP_ENV=production + research=1 -> False (param ignored)."""
+        from app.routes.preview import should_run_research
+        request = MagicMock()
+        request.query_params.get.side_effect = lambda k, default="": "1" if k == "research" else default
+        settings = {"app_env": "production", "research_enabled": False}
+        assert should_run_research(request, settings) is False
+        settings["research_enabled"] = True
+        # With research=1 in prod we still use env only; research_enabled True -> True
+        assert should_run_research(request, settings) is True
+        # With research=1 in prod and research_enabled False -> False (param ignored)
+        settings["research_enabled"] = False
+        assert should_run_research(request, settings) is False
+
+    def test_staging_and_research_param_returns_true(self):
+        """APP_ENV != production + research=1 -> True."""
+        from app.routes.preview import should_run_research
+        request = MagicMock()
+        request.query_params.get.side_effect = lambda k, default="": "1" if k == "research" else default
+        settings = {"app_env": "staging", "research_enabled": False}
+        assert should_run_research(request, settings) is True
+        settings = {"app_env": "development", "research_enabled": False}
+        assert should_run_research(request, settings) is True
+
+    def test_staging_no_param_respects_research_enabled(self):
+        """APP_ENV != production + no research param -> respects RESEARCH_ENABLED."""
+        from app.routes.preview import should_run_research
+        request = MagicMock()
+        request.query_params.get.return_value = ""
+        settings = {"app_env": "staging", "research_enabled": False}
+        assert should_run_research(request, settings) is False
+        settings["research_enabled"] = True
+        assert should_run_research(request, settings) is True

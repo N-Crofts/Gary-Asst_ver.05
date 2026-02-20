@@ -1164,8 +1164,10 @@ def build_digest_context_with_provider(
             from app.research.anchor_utils import extract_org_from_subject, org_from_email_domain
 
             # Per-meeting research enrichment (V1: meeting-scoped research)
-            # Hard cap: max 8 Tavily calls per digest request
+            # Hard cap: max 8 Tavily calls per digest request (budget); strict cap: at most 1 provider call per digest
             MAX_CALLS_PER_DIGEST = 8
+            MAX_RESEARCH_CALLS_PER_DIGEST = 1
+            research_calls_used = 0
             provider = select_research_provider()
             exec_name = (context.get("exec_name") or "").strip()
             exec_mailbox = (user_mailbox or "").strip() if user_mailbox else None
@@ -1295,6 +1297,28 @@ def build_digest_context_with_provider(
                     tavily_ms = research_result.get("_cached_tavily_ms", 0)
                 else:
                     # Not in cache - need to call provider
+                    # Strict cap: at most MAX_RESEARCH_CALLS_PER_DIGEST provider calls per digest build
+                    if research_calls_used >= MAX_RESEARCH_CALLS_PER_DIGEST:
+                        logger.info("RESEARCH_SKIPPED_BUDGET_CAP", extra={"request_id": req_id})
+                        meeting_id = meeting_data.get("id") or f"meeting_{meeting_idx}"
+                        trace = build_research_trace(
+                            attempted=True,
+                            outcome=ResearchOutcome.SKIPPED.value,
+                            skip_reason=SkipReason.BUDGET_EXHAUSTED.value,
+                            anchor_type=anchor_type_str,
+                            anchor_source=anchor_source_str,
+                            primary_domain=primary_domain_from_anchor or None,
+                            confidence=round(chosen_confidence, 4),
+                            query_hash=query_hash_prefix(query_for_call),
+                            query_len=len(query_for_call),
+                            timings_ms={"selection_ms": 0, "tavily_ms": 0, "summarize_ms": 0},
+                        )
+                        research_traces_by_meeting_id[meeting_id] = trace
+                        if isinstance(meeting, dict):
+                            meeting["research_trace"] = trace
+                        elif hasattr(meeting, "__dict__"):
+                            meeting.__dict__["research_trace"] = trace
+                        continue
                     # Check hard cap (8 calls max)
                     if calls_made >= MAX_CALLS_PER_DIGEST:
                         meeting_id = meeting_data.get("id") or f"meeting_{meeting_idx}"
@@ -1362,6 +1386,7 @@ def build_digest_context_with_provider(
                     # Cache result
                     research_cache[cache_key] = research_result
                     calls_made += 1
+                    research_calls_used += 1
                 
                 # Off-target guardrail: host-based domain match; for ambiguous acronym also entity + negative-term filter
                 sources_list = research_result.get("sources") or []
@@ -1403,7 +1428,8 @@ def build_digest_context_with_provider(
 
                 if not result_passed and (expected_domain or ambiguous_acronym):
                     # One retry: for ambiguous use LinkedIn/TheOrg; for non-ambiguous use site:expected_domain
-                    if org_display and calls_made < MAX_CALLS_PER_DIGEST and budget.consume_one_or_false():
+                    # Skip retry if strict per-digest cap already reached
+                    if org_display and calls_made < MAX_CALLS_PER_DIGEST and research_calls_used < MAX_RESEARCH_CALLS_PER_DIGEST and budget.consume_one_or_false():
                         if ambiguous_acronym:
                             retry_query = (
                                 f'"{anchor_display}" "{org_display}" (site:linkedin.com OR site:theorg.com)'
@@ -1426,6 +1452,7 @@ def build_digest_context_with_provider(
                                 retry_result["sources"], max_items=MAX_RESEARCH_SOURCES
                             )
                         calls_made += 1
+                        research_calls_used += 1
                         retry_used = True
                         if ambiguous_acronym:
                             retry_entity = _entity_match_in_sources(
