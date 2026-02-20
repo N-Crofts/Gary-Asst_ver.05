@@ -120,10 +120,9 @@ def test_per_meeting_research_multiple_meetings(mock_provider):
                     allow_research=True,
                 )
                 
-                # Provider should be called at least 2 times (for different queries)
-                assert mock_provider.get_research.call_count >= 2
-                
-                # At least 2 meetings should have research fields
+                # Strict cap: at most 1 research call per digest build
+                assert mock_provider.get_research.call_count <= 1
+                # At least the first eligible meeting may have research (if cap allowed the one call)
                 meetings_with_research = []
                 for m in context.get("meetings", []):
                     if hasattr(m, "model_dump"):
@@ -132,7 +131,7 @@ def test_per_meeting_research_multiple_meetings(mock_provider):
                             meetings_with_research.append(m)
                     elif isinstance(m, dict) and m.get("context_summary") is not None:
                         meetings_with_research.append(m)
-                assert len(meetings_with_research) >= 2
+                assert len(meetings_with_research) >= 1
 
 
 def test_per_meeting_research_dedupe(mock_provider):
@@ -484,16 +483,17 @@ def test_off_target_retry_succeeds_when_retry_matches_domain(mock_provider):
                     date="2025-09-08",
                     allow_research=True,
                 )
-    assert mock_provider.get_research.call_count == 2, "First call + retry"
+    # Strict cap: at most 1 call per digest; no retry allowed, so first call must be on-target for success
+    assert mock_provider.get_research.call_count == 1
     meetings = context.get("meetings", [])
     assert len(meetings) == 1
     m = meetings[0]
     md = m if isinstance(m, dict) else (m.model_dump() if hasattr(m, "model_dump") else m)
-    assert md.get("context_summary"), "Expected context_summary from retry result"
+    # With cap 1 we cannot retry; test uses side_effect [off_target, on_target] so first call is off-target -> skip
     traces = context.get("research_traces_by_meeting_id", {})
     for trace in traces.values():
-        assert trace.get("retry_used") is True
-        assert trace.get("domain_match_passed") is True
+        assert trace.get("skip_reason") == "off_target_results"
+        assert trace.get("domain_match_passed") is False
 
 
 def test_domain_match_substring_false_positive_rejected(mock_provider):
@@ -582,14 +582,14 @@ def test_ambiguous_acronym_domain_match_but_entity_fail_triggers_retry(mock_prov
                 context = build_digest_context_with_provider(
                     source="live", date="2025-09-08", allow_research=True,
                 )
-    assert mock_provider.get_research.call_count == 2
+    # Strict cap: at most 1 call per digest; retry not attempted, so first call fails entity -> skip
+    assert mock_provider.get_research.call_count == 1
     traces = context.get("research_traces_by_meeting_id", {})
     for trace in traces.values():
-        assert trace.get("retry_used") is True
-        assert trace.get("entity_match_passed") is True
+        assert trace.get("skip_reason") == "off_target_results"
     meetings = context.get("meetings", [])
     md = meetings[0] if isinstance(meetings[0], dict) else meetings[0].model_dump()
-    assert md.get("context_summary"), "Retry with entity match should populate"
+    assert not md.get("context_summary")
 
 
 def test_ambiguous_entity_fail_no_retry_match_still_skips(mock_provider):
@@ -625,14 +625,14 @@ def test_ambiguous_entity_fail_no_retry_match_still_skips(mock_provider):
                 context = build_digest_context_with_provider(
                     source="live", date="2025-09-08", allow_research=True,
                 )
-    assert mock_provider.get_research.call_count == 2
+    # Strict cap: at most 1 call per digest; first call fails entity, retry not attempted
+    assert mock_provider.get_research.call_count == 1
     meetings = context.get("meetings", [])
     md = meetings[0] if isinstance(meetings[0], dict) else meetings[0].model_dump()
     assert not md.get("context_summary")
     traces = context.get("research_traces_by_meeting_id", {})
     for trace in traces.values():
         assert trace.get("skip_reason") == "off_target_results"
-        assert trace.get("retry_used") is True
 
 
 def test_ambiguous_negative_term_filter_triggers_off_target(mock_provider):
@@ -699,14 +699,14 @@ def test_ambiguous_retry_linkedin_entity_match_succeeds(mock_provider):
         with patch("app.research.selector.select_research_provider", return_value=mock_provider):
             with patch("app.rendering.context_builder.select_calendar_provider", return_value=mock_calendar):
                 context = build_digest_context_with_provider(source="live", date="2025-09-08", allow_research=True)
-    assert mock_provider.get_research.call_count == 2
+    # Strict cap: at most 1 call per digest; first call is off-target, retry not attempted
+    assert mock_provider.get_research.call_count == 1
     meetings = context.get("meetings", [])
     md = meetings[0] if isinstance(meetings[0], dict) else meetings[0].model_dump()
-    assert md.get("context_summary"), "Retry with org_display in content should populate meeting"
+    assert not md.get("context_summary")
     traces = context.get("research_traces_by_meeting_id", {})
     for trace in traces.values():
-        assert trace.get("retry_used") is True
-        assert trace.get("entity_match_passed") is True
+        assert trace.get("skip_reason") == "off_target_results"
 
 
 def test_trace_domain_match_false_then_match_url_blank(mock_provider):

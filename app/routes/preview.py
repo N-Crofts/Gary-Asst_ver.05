@@ -1,3 +1,4 @@
+import os
 import uuid
 from fastapi import APIRouter, Request, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -57,6 +58,25 @@ def _require_api_key_if_configured(request: Request) -> None:
     provided = request.headers.get("x-api-key") or request.headers.get("X-API-Key")
     if provided != cfg.api_key:
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+
+def should_run_research(request: Request, settings: dict) -> bool:
+    """
+    Whether to run research for this request (staging-only override via research=1).
+
+    - If APP_ENV == production: ignore query param, return settings["research_enabled"].
+    - If APP_ENV != production and research=1: return True (force research for this request).
+    - Otherwise: return settings["research_enabled"].
+
+    settings must have: app_env (str), research_enabled (bool).
+    """
+    app_env = (settings.get("app_env") or "development").strip().lower()
+    research_enabled = settings.get("research_enabled", False)
+    if app_env == "production":
+        return research_enabled
+    if request and request.query_params.get("research", "").strip() == "1":
+        return True
+    return research_enabled
 
 
 def _convert_meeting_to_model(meeting: dict) -> MeetingModel:
@@ -170,13 +190,19 @@ async def _render_html_preview(
     # Build context using shared context builder (research allowed only here and run-digest/digest send)
     request_id = str(uuid.uuid4())
     research_budget = ResearchBudget(MAX_TAVILY_CALLS_PER_REQUEST)
-    logger.info(f"Building digest context: source={source}, date={date}, mailbox={mailbox}")
+    research_enabled_env = (os.getenv("RESEARCH_ENABLED") or "").strip().lower() in ("true", "1", "yes")
+    settings = {
+        "app_env": os.getenv("APP_ENV") or os.getenv("ENVIRONMENT") or "development",
+        "research_enabled": research_enabled_env,
+    }
+    allow_research = should_run_research(request, settings)
+    logger.info(f"Building digest context: source={source}, date={date}, mailbox={mailbox}, allow_research={allow_research}")
     context = build_digest_context_with_provider(
         source=source,
         date=date,
         exec_name=exec_name,
         mailbox=mailbox,
-        allow_research=True,
+        allow_research=allow_research,
         research_budget=research_budget,
         request_id=request_id,
     )
@@ -294,12 +320,18 @@ async def preview_digest_json(
     # Build context using shared context builder (research allowed only here and run-digest/digest send)
     request_id = str(uuid.uuid4())
     research_budget = ResearchBudget(MAX_TAVILY_CALLS_PER_REQUEST)
+    research_enabled_env = (os.getenv("RESEARCH_ENABLED") or "").strip().lower() in ("true", "1", "yes")
+    settings = {
+        "app_env": os.getenv("APP_ENV") or os.getenv("ENVIRONMENT") or "development",
+        "research_enabled": research_enabled_env,
+    }
+    allow_research = should_run_research(request, settings)
     context = build_digest_context_with_provider(
         source=source,
         date=date,
         exec_name=exec_name,
         mailbox=mailbox,
-        allow_research=True,
+        allow_research=allow_research,
         research_budget=research_budget,
         request_id=request_id,
     )
