@@ -78,63 +78,75 @@
                             </div>
                           {% endif %}
 
-                          <!-- Recent news (clickable links) -->
-                          {% if m.news and m.news|length > 0 %}
+                          <!-- 1) Context Snapshot: company summary, recent developments, industry signal; or subtle empty state -->
+                          {% set has_context = m.context_summary or (m.news and m.news|length > 0) or m.industry_signal or (m.strategic_angles and m.strategic_angles|length > 0) or (m.high_leverage_questions and m.high_leverage_questions|length > 0) %}
+                          <div style="margin:12px 0 4px 0;">
+                            <div style="font-weight:800; font-size:13px; color:#0f172a; margin-bottom:6px;">Context Snapshot</div>
+                            {% if has_context %}
+                              {% if m.context_summary %}
+                                <div style="font-size:13px; color:#374151; margin-bottom:8px; line-height:1.5;">{{ m.context_summary }}</div>
+                              {% endif %}
+                              {% if m.news and m.news|length > 0 %}
+                                <div style="font-size:12px; color:#6b7280; margin-bottom:4px;">Recent developments</div>
+                                <ul style="margin:0; padding-left:18px; font-size:13px;">
+                                  {% for n in m.news %}
+                                    {% if n.title and n.url %}
+                                      <li style="margin:6px 0;">
+                                        <a href="{{ n.url }}" target="_blank" rel="noopener noreferrer" style="color:#3a5d80; text-decoration:underline;">{{ n.title }}</a>
+                                      </li>
+                                    {% else %}
+                                      <li style="margin:6px 0;">{{ n }}</li>
+                                    {% endif %}
+                                  {% endfor %}
+                                </ul>
+                              {% endif %}
+                              {% if m.industry_signal %}
+                                <div style="font-size:12px; color:#6b7280; margin-top:6px;">Industry signal</div>
+                                <div style="font-size:13px; color:#374151; line-height:1.5;">{{ m.industry_signal }}</div>
+                              {% endif %}
+                            {% else %}
+                              <div style="padding:8px 10px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; font-size:12px; color:#94a3b8;">No external context available</div>
+                            {% endif %}
+                            {% if m.research_trace and (app_env|default('') == 'development' or enable_research_dev|default(false)) %}
+                              <div style="margin-top:6px; font-size:11px; color:#9ca3af;">
+                                [Dev] Anchor={{ m.research_trace.anchor_type|default('—') }} | domain={{ m.research_trace.primary_domain|default('—') }} | domain_match={% if m.research_trace.domain_match_passed is defined and m.research_trace.domain_match_passed is not none %}{{ 'true' if m.research_trace.domain_match_passed else 'false' }}{% else %}—{% endif %}
+                                | match_url={% if m.research_trace.domain_match_passed %}{{ m.research_trace.domain_match_url|default('—') }}{% else %}—{% endif %}
+                                | hosts={% if m.research_trace.top_source_hosts %}{{ m.research_trace.top_source_hosts[:3]|join(',') }}{% else %}—{% endif %}
+                                {% if m.research_trace.entity_match_passed is defined and m.research_trace.entity_match_passed is not none %} | entity_match={{ 'true' if m.research_trace.entity_match_passed else 'false' }}{% endif %}
+                                {% if m.research_trace.skip_reason %} | skip={{ m.research_trace.skip_reason }}{% endif %}
+                                {% if m.research_trace.mismatch_reason %} | mismatch={{ m.research_trace.mismatch_reason }}{% endif %}
+                                {% if m.research_trace.retry_used %} | retry=true{% endif %}
+                                {% if m.research_trace.outcome == 'error' %} | outcome=error{% endif %}
+                              </div>
+                            {% endif %}
+                          </div>
+
+                          <!-- 2) Strategic Angles: research synthesis bullets; omit section if empty -->
+                          {% if m.strategic_angles and m.strategic_angles|length > 0 %}
                             <div style="margin:12px 0 4px 0;">
-                              <div style="font-weight:800; font-size:13px; color:#0f172a; margin-bottom:6px;">Recent news</div>
+                              <div style="font-weight:800; font-size:13px; color:#0f172a; margin-bottom:6px;">Strategic Angles</div>
                               <ul style="margin:0; padding-left:18px; font-size:13px;">
-                                {% for n in m.news %}
-                                  {% if n.title and n.url %}
-                                    <li style="margin:6px 0;">
-                                      <a href="{{ n.url }}" target="_blank" rel="noopener noreferrer" style="color:#3a5d80; text-decoration:underline;">{{ n.title }}</a>
-                                    </li>
-                                  {% else %}
-                                    <!-- Back-compat if plain string -->
-                                    <li style="margin:6px 0;">{{ n }}</li>
-                                  {% endif %}
+                                {% for a in m.strategic_angles %}
+                                  <li style="margin:6px 0;">{{ a }}</li>
                                 {% endfor %}
                               </ul>
                             </div>
-                          {% else %}
-                            <!-- Gentle empty state for news -->
-                            <div style="margin:12px 0 4px 0; padding:8px 10px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; font-size:12px; color:#64748b;">
-                              <span style="font-weight:600;">Recent news:</span> Not available
-                            </div>
                           {% endif %}
 
-                          <!-- Talking points -->
-                          {% if m.talking_points and m.talking_points|length > 0 %}
-                            <div style="margin:12px 0 4px 0;">
-                              <div style="font-weight:800; font-size:13px; color:#0f172a; margin-bottom:6px;">Talking points (prioritize)</div>
-                              <ol style="margin:0; padding-left:18px; font-size:13px;">
-                                {% for t in m.talking_points %}
-                                  <li style="margin:6px 0;">{{ t }}</li>
-                                {% endfor %}
-                              </ol>
-                            </div>
-                          {% else %}
-                            <!-- Gentle empty state for talking points -->
-                            <div style="margin:12px 0 4px 0; padding:8px 10px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; font-size:12px; color:#64748b;">
-                              <span style="font-weight:600;">Talking points:</span> Not available
-                            </div>
-                          {% endif %}
-
-                          <!-- Smart questions -->
-                          {% if m.smart_questions and m.smart_questions|length > 0 %}
+                          <!-- 3) High-Leverage Questions: from research/context; omit section if no context -->
+                          {% if m.high_leverage_questions and m.high_leverage_questions|length > 0 %}
                             <div style="margin:12px 0 0 0; padding:10px 12px; background:#eaf2e9; border:1px solid #dbe7da; border-radius:8px;">
-                              <div style="font-weight:800; font-size:13px; color:#064e3b; margin-bottom:6px;">Smart questions</div>
+                              <div style="font-weight:800; font-size:13px; color:#064e3b; margin-bottom:6px;">High-Leverage Questions</div>
                               <ul style="margin:0; padding-left:18px; font-size:13px;">
-                                {% for q in m.smart_questions %}
+                                {% for q in m.high_leverage_questions %}
                                   <li style="margin:6px 0;">{{ q }}</li>
                                 {% endfor %}
                               </ul>
                             </div>
-                          {% else %}
-                            <!-- Gentle empty state for smart questions -->
-                            <div style="margin:12px 0 0 0; padding:10px 12px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; font-size:12px; color:#64748b;">
-                              <span style="font-weight:600;">Smart questions:</span> Not available
-                            </div>
                           {% endif %}
+
+                          <!-- 4) Relationship Signal: TODO - wire recent internal interaction, past matters summary -->
+                          <!-- Future: show when relationship data is available -->
 
                           <!-- Recent with them (Memory) -->
                           {% if m.memory and m.memory.previous_meetings and m.memory.previous_meetings|length > 0 %}
@@ -179,12 +191,12 @@
               </tr>
             {% endif %}
 
-            {% if research is defined %}
-            <!-- Research -->
+            {% if research is defined and (app_env|default('') == 'development' or enable_research_dev|default(false)) %}
+            <!-- Research (dev/debug only - per-meeting research is now in meeting cards) -->
             <tr>
               <td style="padding:16px 24px 0 24px;">
                 {% if research.summary or (research.key_points|default([])|length > 0) or (research.sources|default([])|length > 0) %}
-                <div style="font-weight:800; font-size:15px; color:#111827; margin-bottom:10px;">Research</div>
+                <div style="font-weight:800; font-size:15px; color:#111827; margin-bottom:10px;">Research (Debug)</div>
                 {% if research.summary %}
                 <p style="margin:0 0 10px 0; font-size:13px; color:#374151; line-height:1.5;">{{ research.summary }}</p>
                 {% endif %}
@@ -205,7 +217,7 @@
                 </div>
                 {% endif %}
                 {% else %}
-                <div style="font-weight:800; font-size:15px; color:#111827; margin-bottom:10px;">Research</div>
+                <div style="font-weight:800; font-size:15px; color:#111827; margin-bottom:10px;">Research (Debug)</div>
                 <p style="margin:0 0 10px 0; font-size:13px; color:#6b7280; line-height:1.5;">Research not included for this briefing. No high-confidence external meeting was detected.</p>
                 {% endif %}
               </td>

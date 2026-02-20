@@ -7,14 +7,43 @@ This script tests:
 2. Email send capability for gary-asst@rpck.com
 
 Run with: python tests/test_graph_access.py
+Or with pytest: pytest tests/test_graph_access.py (skips if credentials missing/network unavailable)
 """
 import os
 import sys
 import requests
 from dotenv import load_dotenv
 
+import pytest
+
 # Load environment variables from .env file
 load_dotenv()
+
+
+def _get_access_token_optional() -> str | None:
+    """
+    Get Microsoft Graph access token if credentials are configured and request succeeds.
+    Returns None instead of exiting (for use in pytest fixture).
+    """
+    tenant_id = (os.getenv("MS_TENANT_ID") or os.getenv("AZURE_TENANT_ID") or "").strip()
+    client_id = (os.getenv("MS_CLIENT_ID") or os.getenv("AZURE_CLIENT_ID") or "").strip()
+    client_secret = (os.getenv("MS_CLIENT_SECRET") or os.getenv("AZURE_CLIENT_SECRET") or "").strip()
+    if not all([tenant_id, client_id, client_secret]):
+        return None
+    token_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
+    data = {
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "scope": "https://graph.microsoft.com/.default",
+        "grant_type": "client_credentials",
+    }
+    try:
+        response = requests.post(token_url, data=data, timeout=10)
+        if response.status_code != 200:
+            return None
+        return response.json().get("access_token")
+    except requests.exceptions.RequestException:
+        return None
 
 
 def get_access_token() -> str:
@@ -76,6 +105,19 @@ def get_access_token() -> str:
         sys.exit(1)
 
 
+@pytest.fixture(scope="module")
+def access_token():
+    """Provide MS Graph access token; skip if credentials missing or token request fails."""
+    token = _get_access_token_optional()
+    if token is None:
+        pytest.skip(
+            "MS Graph credentials not configured or token request failed "
+            "(set MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET or run with -m 'not requires_network')"
+        )
+    return token
+
+
+@pytest.mark.requires_network
 def test_calendar_access(access_token: str) -> bool:
     """
     Test 1: Read Chintan's calendar events.
@@ -130,6 +172,7 @@ def test_calendar_access(access_token: str) -> bool:
         return False
 
 
+@pytest.mark.requires_network
 def test_send_email(access_token: str) -> bool:
     """
     Test 2: Send email as Gary-Asst.
@@ -193,8 +236,10 @@ def main():
     print("\nThis script validates app-only Microsoft Graph access")
     print("for Gary-Asst using client credentials authentication.\n")
     
-    # Get access token
-    access_token = get_access_token()
+    # Get access token (script mode: exit on failure)
+    access_token = _get_access_token_optional()
+    if access_token is None:
+        get_access_token()  # prints error and sys.exit(1)
     
     # Run tests
     test1_passed = test_calendar_access(access_token)

@@ -25,5 +25,10 @@ class MeetingWithEnrichment(BaseModel):
     smart_questions: List[str] = []
     memory: Optional[dict] = None
     people_intel: Optional[dict] = None
+    # Data-driven sections for research/signals (no placeholder filler)
+    context_summary: Optional[str] = None
+    industry_signal: Optional[str] = None
+    strategic_angles: List[str] = []
+    high_leverage_questions: List[str] = []
 
 

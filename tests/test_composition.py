@@ -19,9 +19,8 @@ def test_compose_digest_includes_required_keys():
 def test_render_digest_markers_and_links_count():
     ctx = compose_digest_model(SAMPLE_MEETINGS, exec_name="RPCK Biz Dev", now=datetime(2025, 9, 8))
     html = render_digest_html({"request": None, **ctx})
-    assert "Recent news" in html
-    assert "Talking points" in html
-    assert "Smart questions" in html
+    assert "Context Snapshot" in html
+    assert "Recent developments" in html
     assert html.count('<a ') >= 3
 
 

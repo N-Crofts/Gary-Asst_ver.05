@@ -27,6 +27,13 @@ class MeetingModel(BaseModel):
     news: List[NewsItem] = []
     talking_points: List[str] = []
     smart_questions: List[str] = []
+    # Data-driven sections for research/signals (no placeholder filler)
+    context_summary: Optional[str] = None
+    industry_signal: Optional[str] = None
+    strategic_angles: List[str] = []
+    high_leverage_questions: List[str] = []
+    # Per-meeting research trace (dev/debug only, non-PII)
+    research_trace: Optional[Dict[str, Any]] = None
 
 
 class DigestPreviewModel(BaseModel):

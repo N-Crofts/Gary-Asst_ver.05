@@ -7,8 +7,9 @@ run-digest, digest send). Budget caps Tavily calls per request. No PII in logs.
 import os
 from typing import Set
 
-# Hard cap: never more than this many Tavily calls per request
-MAX_TAVILY_CALLS_PER_REQUEST = 1
+# Hard cap: never more than this many Tavily calls per digest request (preview/run-digest/digest send)
+MAX_TAVILY_CALLS_PER_REQUEST = 8
+MAX_TAVILY_CALLS_PER_DIGEST = 8  # Alias for clarity in digest contexts
 
 # HTTP timeout for Tavily API calls (seconds). No retries.
 TAVILY_TIMEOUT_SECONDS = 10
