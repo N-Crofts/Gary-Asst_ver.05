@@ -16,3 +16,10 @@ Pipfile.lock
 .vscode/*
 !.vscode/settings.json
 .idea/
+
+# local test artifacts / baselines
+artifacts/
+pytest-after.txt
+pytest-after.xml
+pytest-*.txt
+pytest-*.xml
